@@ -4,8 +4,10 @@ echo "🎯 WaveShift 完整部署流程"
 echo "========================"
 
 # 设置环境变量
-export CLOUDFLARE_API_TOKEN=c-09QTxMiwuq87L9gQe959CTRxbDHXi5NYnQUbMz
-export CLOUDFLARE_ACCOUNT_ID=1298fa35ac940c688dc1b6d8f5eead72
+# 注意：在 GitHub Actions 中，这些变量将从 Secrets 中自动设置
+# 本地运行时，请确保已设置这些环境变量：
+# export CLOUDFLARE_API_TOKEN=your-api-token
+# export CLOUDFLARE_ACCOUNT_ID=your-account-id
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
