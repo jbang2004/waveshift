@@ -1,0 +1,3 @@
+[submodule "gemini-transcribe-worker"]
+	path = gemini-transcribe-worker
+	url = https://github.com/jbang2004/gemini-transcribe-worker.git
