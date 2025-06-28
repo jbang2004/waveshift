@@ -68,7 +68,7 @@
 		},
 		{
 			"binding": "TRANSCRIBE_SERVICE",
-			"service": "gemini-transcribe-worker",
+			"service": "transcribe-worker",
 			"environment": "production"
 		}
 	],

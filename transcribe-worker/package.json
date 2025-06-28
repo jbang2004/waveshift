@@ -1,0 +1,25 @@
+{
+  "name": "transcribe-worker",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "tsc",
+    "cf-typegen": "wrangler types",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "WaveShift 转录服务 - 使用 Google Gemini API 进行音频转录和翻译",
+  "dependencies": {
+    "@google/genai": "^1.5.1",
+    "@types/node": "^24.0.3",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250617.0"
+  }
+}

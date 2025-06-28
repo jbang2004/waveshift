@@ -53,10 +53,48 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: "1298fa35ac940c688dc1b6d8f5eead72"
           R2_BUCKET_NAME: "separate-audio-video"
 
+  deploy-transcribe:
+    runs-on: ubuntu-latest
+    name: Deploy Transcribe Worker
+    defaults:
+      run:
+        working-directory: ./transcribe-worker
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: git config --global init.defaultBranch main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './transcribe-worker/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate types
+        run: npm run cf-typegen
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+        
+      - name: Deploy Transcribe Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: './transcribe-worker'
+
   deploy-waveshift:
     runs-on: ubuntu-latest
     name: Deploy WaveShift Workflow
-    needs: deploy-ffmpeg  # 确保 ffmpeg-worker 先部署
+    needs: [deploy-ffmpeg, deploy-transcribe]  # 确保依赖服务先部署
     defaults:
       run:
         working-directory: ./waveshift-workflow
