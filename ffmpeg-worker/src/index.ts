@@ -28,13 +28,16 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 			// 2. 获取容器实例
 			const container = await getRandom(this.env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
 			
-			// 3. 调用 FFMPEG 处理
-			const formData = new FormData();
-			formData.append('video', new Blob([await originalData.arrayBuffer()]), 'input.mp4');
+			// 3. 调用 FFMPEG 处理 - 发送原始二进制数据
+			const videoBuffer = await originalData.arrayBuffer();
 			
 			const response = await container.fetch(new Request('https://ffmpeg/', {
 				method: 'POST',
-				body: formData
+				headers: {
+					'Content-Type': 'video/mp4',
+					'Content-Length': videoBuffer.byteLength.toString()
+				},
+				body: videoBuffer
 			}));
 			
 			if (!response.ok) {
