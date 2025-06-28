@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { Env, ProcessingOptionsType } from './types/env.d';
 
 // 应用常量
@@ -11,12 +11,12 @@ const DEFAULT_PROCESSING_OPTIONS: ProcessingOptionsType = {
 
 
 // 导出 Workflow 类
-export { SepTransWorkflow } from './workflows/sep-trans';
+export { SepTransWorkflow } from './sep-trans';
 
 const app = new Hono<{ Bindings: Env }>();
 
 // 查看处理结果（包含音视频和转录结果）
-app.get('/result/:id', async (c) => {
+app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
 	const id = c.req.param('id');
 	try {
 		const videoUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/videos/${id}-silent.mp4`;
@@ -60,7 +60,7 @@ app.get('/result/:id', async (c) => {
 });
 
 // 查询处理状态
-app.get('/status/:id', async (c) => {
+app.get('/status/:id', async (c: Context<{ Bindings: Env }>) => {
 	const id = c.req.param('id');
 	try {
 		const workflow = await c.env.SEP_TRANS_PROCESSOR.get(id);
@@ -71,7 +71,7 @@ app.get('/status/:id', async (c) => {
 });
 
 // 上传和处理文件
-app.post('/process', async (c) => {
+app.post('/process', async (c: Context<{ Bindings: Env }>) => {
 	const body = await c.req.parseBody();
 	const file = body[Object.keys(body)[0]] as File;
 
@@ -109,7 +109,7 @@ app.post('/process', async (c) => {
 });
 
 // API 文档
-app.get('/api', async (c) => {
+app.get('/api', async (c: Context<{ Bindings: Env }>) => {
 	return c.json({
 		name: 'WaveShift Workflow API',
 		version: '5.0.0',

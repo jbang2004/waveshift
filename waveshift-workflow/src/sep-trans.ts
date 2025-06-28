@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
-import { Env, SepTransWorkflowParams } from '../types/env.d';
-import { createTranscriptionTask, updateTranscriptionTaskUrls, updateTranscriptionTaskStatus, storeTranscriptionResult } from '../utils/database';
+import { Env, SepTransWorkflowParams } from './types/env.d';
+import { createTranscriptionTask, updateTranscriptionTaskUrls, updateTranscriptionTaskStatus, storeTranscriptionResult } from './utils/database';
 
 export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowParams> {
 	async run(event: WorkflowEvent<SepTransWorkflowParams>, step: WorkflowStep) {
