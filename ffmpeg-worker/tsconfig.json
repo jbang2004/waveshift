@@ -1,0 +1,41 @@
+{
+	"compilerOptions": {
+		/* Visit https://aka.ms/tsconfig.json to read more about this file */
+
+		/* Projects */
+		"incremental": true /* Enable incremental compilation */,
+
+		/* Language and Environment */
+		"target": "ES2020" /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */,
+		"lib": ["ES2020"] /* Specify a set of bundled library declaration files that describe the target runtime environment. */,
+		"types": ["@cloudflare/workers-types"] /* Specify type package names to be included without being referenced in a source file. */,
+
+		/* Modules */
+		"module": "ES2020" /* Specify what module code is generated. */,
+		"moduleResolution": "bundler" /* Specify how TypeScript looks up a file from a given module specifier. */,
+
+		/* JavaScript Support */
+		"allowJs": true /* Allow JavaScript files to be a part of your program. Use the 'checkJS' option to get errors from these files. */,
+		"checkJs": false /* Enable error reporting in type-checked JavaScript files. */,
+
+		/* Emit */
+		"declaration": false /* Generate .d.ts files from TypeScript and JavaScript files in your project. */,
+		"noEmit": true /* Disable emitting files from a compilation. */,
+
+		/* Interop Constraints */
+		"isolatedModules": true /* Ensure that each file can be safely transpiled without relying on other imports. */,
+		"allowSyntheticDefaultImports": true /* Allow 'import x from y' when a module doesn't have a default export. */,
+		"forceConsistentCasingInFileNames": true /* Ensure that casing is correct in imports. */,
+
+		/* Type Checking */
+		"strict": true /* Enable all strict type-checking options. */,
+		"noUncheckedIndexedAccess": true /* Include 'undefined' in index signature results */,
+		"noImplicitReturns": true /* Enable error reporting for codepaths that do not explicitly return in a function. */,
+		"noFallthroughCasesInSwitch": true /* Enable error reporting for fallthrough cases in switch statements. */,
+		"noUncheckedSideEffectImports": true /* Check side effect imports. */,
+		"noImplicitOverride": true /* Ensure overriding members in derived classes are marked with an override modifier. */,
+
+		/* Completeness */
+		"skipLibCheck": true /* Skip type checking all .d.ts files. */
+	}
+}
