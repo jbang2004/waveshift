@@ -31,16 +31,17 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
     input_file.write_all(&body_bytes)?;
     let input_path = input_file.path();
     
-    // 生成唯一的文件名
+    // 生成唯一的文件名 - 使用相对路径更安全
     let uuid = Uuid::new_v4();
-    let audio_filename = format!("/tmp/{}_audio.aac", uuid);
-    let video_filename = format!("/tmp/{}_video.mp4", uuid);
+    let audio_filename = format!("{}_audio.aac", uuid);
+    let video_filename = format!("{}_video.mp4", uuid);
     
     println!("输入文件: {:?}", input_path);
     println!("音频输出: {}", audio_filename);
     println!("视频输出: {}", video_filename);
     
     // 使用 FFMPEG 分离音频 (使用 copy 避免重新编码)
+    println!("开始音频分离...");
     let audio_result = Command::new("ffmpeg")
         .args(&[
             "-i", input_path.to_str().unwrap(),
@@ -53,11 +54,17 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
     
     if !audio_result.status.success() {
         let error_msg = String::from_utf8_lossy(&audio_result.stderr);
-        eprintln!("音频分离失败: {}", error_msg);
+        let stdout_msg = String::from_utf8_lossy(&audio_result.stdout);
+        eprintln!("音频分离失败:");
+        eprintln!("STDERR: {}", error_msg);
+        eprintln!("STDOUT: {}", stdout_msg);
+        eprintln!("Exit code: {:?}", audio_result.status.code());
         return Err(format!("音频分离失败: {}", error_msg).into());
     }
+    println!("音频分离成功");
     
     // 使用 FFMPEG 生成无声视频
+    println!("开始视频分离...");
     let video_result = Command::new("ffmpeg")
         .args(&[
             "-i", input_path.to_str().unwrap(),
@@ -70,11 +77,24 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
     
     if !video_result.status.success() {
         let error_msg = String::from_utf8_lossy(&video_result.stderr);
-        eprintln!("视频分离失败: {}", error_msg);
+        let stdout_msg = String::from_utf8_lossy(&video_result.stdout);
+        eprintln!("视频分离失败:");
+        eprintln!("STDERR: {}", error_msg);
+        eprintln!("STDOUT: {}", stdout_msg);
+        eprintln!("Exit code: {:?}", video_result.status.code());
         return Err(format!("视频分离失败: {}", error_msg).into());
     }
+    println!("视频分离成功");
     
     println!("FFMPEG 处理完成");
+    
+    // 检查输出文件是否存在
+    if !std::path::Path::new(&audio_filename).exists() {
+        return Err(format!("音频输出文件不存在: {}", audio_filename).into());
+    }
+    if !std::path::Path::new(&video_filename).exists() {
+        return Err(format!("视频输出文件不存在: {}", video_filename).into());
+    }
     
     // 读取输出文件
     let audio_data = fs::read(&audio_filename).await?;
