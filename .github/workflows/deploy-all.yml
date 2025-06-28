@@ -84,7 +84,7 @@ jobs:
         run: npx tsc --noEmit
         
       - name: Set Gemini API Key Secret
-        run: echo "${{ secrets.GEMINI_API_KEY }}" | wrangler secret put GEMINI_API_KEY
+        run: echo "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
         working-directory: ./transcribe-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
