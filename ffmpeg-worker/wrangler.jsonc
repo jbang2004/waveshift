@@ -10,7 +10,8 @@
 			"name": "ffmpeg-container",
 			"class_name": "FFmpegContainer",
 			"image": "./Dockerfile",
-			"instance_type": "standard"
+			"instance_type": "standard",
+			"sleep_after": "5m"
 		}
 	],
 	"migrations": [
