@@ -1,0 +1,99 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "waveshift-workflow",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-06-14",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"directory": "./public",
+	},
+	"observability": {
+		"enabled": true
+	},
+	"r2_buckets": [
+		{
+			"binding": "SEPARATE_STORAGE",
+			"bucket_name": "separate-audio-video",
+			"preview_bucket_name": "separate-audio-video-preview"
+		}
+	],
+	"vars": {
+		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
+		"R2_BUCKET_NAME": "separate-audio-video",
+		"R2_PUBLIC_DOMAIN": "separate.waveshift.net"
+	},
+	/**
+	 * Smart Placement
+	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": { "mode": "smart" },
+
+	/**
+	 * Bindings
+	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+	 * databases, object storage, AI inference, real-time communication and more.
+	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 */
+
+	/**
+	 * Environment Variables
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 */
+	// "vars": { "MY_VARIABLE": "production_value" },
+	/**
+	 * Note: Use secrets to store sensitive data.
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+
+	/**
+	 * Static Assets
+	 * https://developers.cloudflare.com/workers/static-assets/binding/
+	 */
+	// "assets": { "directory": "./public/", "binding": "ASSETS" },
+
+	/**
+	 * Service Bindings (communicate between multiple Workers)
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+	 */
+	"services": [
+		{
+			"binding": "FFMPEG_SERVICE",
+			"service": "ffmpeg-worker",
+			"environment": "production",
+			"entrypoint": "FFmpegWorker"
+		},
+		{
+			"binding": "TRANSCRIBE_SERVICE",
+			"service": "gemini-transcribe-worker",
+			"environment": "production"
+		}
+	],
+	
+	/**
+	 * Workflows (durable execution for long-running tasks)
+	 * https://developers.cloudflare.com/workers/workflows/
+	 */
+	"workflows": [
+		{
+			"binding": "SEP_TRANS_PROCESSOR",
+			"name": "sep-trans-workflow",
+			"class_name": "SepTransWorkflow"
+		}
+	],
+	
+	/**
+	 * D1 Database (serverless SQL database)
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#d1-databases
+	 */
+	"d1_databases": [
+		{
+			"binding": "TRANSCRIPTION_DB",
+			"database_name": "separate-transcriptions",
+			"database_id": "c72e121d-ec4a-4e9d-8726-8793b1a74167"
+		}
+	]
+}

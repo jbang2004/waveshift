@@ -1,16 +1,15 @@
-# 使用 Ubuntu 基础镜像
-FROM ubuntu:22.04
+# 多阶段构建 - 构建阶段
+FROM ubuntu:22.04 AS builder
 
 # 设置非交互式安装
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 安装系统依赖
+# 安装构建依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     pkg-config \
     libssl-dev \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Rust
@@ -27,8 +26,23 @@ COPY separate-container/src ./src
 # 构建 Rust 应用
 RUN cargo build --release
 
+# 运行阶段 - 最小化镜像
+FROM alpine:3.19
+
+# 安装运行时依赖
+RUN apk add --no-cache \
+    ffmpeg \
+    ca-certificates \
+    libc6-compat
+
+# 创建工作目录
+WORKDIR /app
+
+# 从构建阶段复制编译好的二进制文件
+COPY --from=builder /app/target/release/separate-container ./separate-container
+
 # 暴露端口
 EXPOSE 8080
 
 # 运行应用
-CMD ["./target/release/separate-container"]
+CMD ["./separate-container"]

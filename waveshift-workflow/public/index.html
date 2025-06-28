@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Separate - Audio Video Separator</title>
+		<script src="https://cdn.tailwindcss.com"></script>
+		<style>
+			body {
+				background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 50%, #16213e 100%);
+				min-height: 100vh;
+			}
+
+			.cyber-card {
+				background: rgba(0, 240, 240, 0.05);
+				backdrop-filter: blur(10px);
+				border: 1px solid rgba(0, 240, 240, 0.3);
+				border-radius: 12px;
+				box-shadow: 0 8px 32px rgba(0, 240, 240, 0.1);
+			}
+
+			.cyber-border-b {
+				border-bottom: 2px solid rgba(0, 240, 240, 0.4);
+			}
+
+			.text-shadow-glow {
+				text-shadow: 0 0 20px #00f0f0;
+			}
+
+			input[type='file'] {
+				display: none;
+			}
+
+			.file-input-label {
+				display: inline-block;
+				padding: 12px 24px;
+				background: linear-gradient(45deg, rgba(0, 240, 240, 0.1), rgba(240, 0, 240, 0.1));
+				border: 2px solid #00f0f0;
+				border-radius: 8px;
+				color: #00f0f0;
+				cursor: pointer;
+				transition: all 0.3s ease;
+				font-weight: bold;
+			}
+
+			.file-input-label:hover {
+				background: linear-gradient(45deg, rgba(0, 240, 240, 0.2), rgba(240, 0, 240, 0.2));
+				box-shadow: 0 0 15px rgba(0, 240, 240, 0.5);
+				transform: translateY(-2px);
+			}
+
+			.loader {
+				border: 6px solid transparent;
+				border-radius: 50%;
+				width: 80px;
+				height: 80px;
+				animation: spin-colors 2s linear infinite;
+			}
+
+			@keyframes spin-colors {
+				0% {
+					transform: rotate(0deg);
+					border-top-color: #00f0f0;
+					border-right-color: #00f0f0;
+				}
+				25% {
+					border-top-color: #f0f;
+					border-right-color: #f0f;
+				}
+				50% {
+					border-top-color: #ff0;
+					border-right-color: #ff0;
+				}
+				75% {
+					border-top-color: #0f0;
+					border-right-color: #0f0;
+				}
+				100% {
+					transform: rotate(360deg);
+					border-top-color: #00f0f0;
+					border-right-color: #00f0f0;
+				}
+			}
+
+			.cyber-button {
+				position: relative;
+				color: #00f0f0;
+				text-shadow: 0 0 5px #00f0f0;
+				transition: all 0.3s ease;
+				clip-path: polygon(0 0, 100% 0, 100% 100%, 0% 100%);
+				background: linear-gradient(45deg, rgba(0, 240, 240, 0.1), rgba(240, 0, 240, 0.1));
+				border: 2px solid #00f0f0;
+			}
+
+			.cyber-button:hover {
+				background: linear-gradient(45deg, rgba(0, 240, 240, 0.2), rgba(240, 0, 240, 0.2));
+				box-shadow: 0 0 20px rgba(0, 240, 240, 0.6);
+				transform: translateY(-2px);
+				color: #ffffff;
+			}
+
+			video, audio {
+				border: 2px solid rgba(0, 240, 240, 0.3);
+				border-radius: 8px;
+				background: rgba(0, 0, 0, 0.5);
+			}
+		</style>
+	</head>
+
+	<body class="font-mono text-gray-200">
+		<div class="container mx-auto px-4 py-8 max-w-4xl">
+			<!-- Header -->
+			<div class="text-center mb-12">
+				<h1 class="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 mb-4 text-shadow-glow">
+					SEPARATE
+				</h1>
+				<p class="text-xl text-cyan-300/80 mb-2">AUDIO • VIDEO • SEPARATOR</p>
+				<p class="text-sm text-gray-400">Instantly separate audio and video tracks from your media files</p>
+			</div>
+
+			<!-- Upload Form -->
+			<form id="separation-form" class="space-y-8">
+				<!-- Step 1: Upload Video -->
+				<div class="cyber-card p-6">
+					<h2 class="text-2xl font-semibold mb-4 cyber-border-b pb-3 text-cyan-300">1. UPLOAD VIDEO</h2>
+					<div class="text-center">
+						<label for="video-input" class="file-input-label">
+							<span>📁 CHOOSE VIDEO FILE</span>
+						</label>
+						<input type="file" id="video-input" accept="video/*" required />
+						<p class="text-sm text-gray-400 mt-2">Maximum file size: 100MB</p>
+						<p id="file-name" class="text-cyan-300 mt-2 font-semibold"></p>
+					</div>
+				</div>
+
+
+				<!-- Submit Button -->
+				<div class="text-center">
+					<button type="submit" id="submit-button" class="cyber-button w-full sm:w-auto font-bold py-3 px-8 rounded-none" disabled>
+						🎵 SEPARATE AUDIO & VIDEO
+					</button>
+				</div>
+			</form>
+
+			<!-- Result Section -->
+			<div id="result-section" class="hidden text-center cyber-card p-6 mt-8">
+				<div id="loader" class="hidden flex flex-col items-center justify-center">
+					<div class="loader"></div>
+					<p class="mt-4 text-cyan-300/80">SEPARATING AUDIO AND VIDEO...</p>
+				</div>
+				
+				<div id="result-container" class="hidden">
+					<h2 class="text-2xl font-semibold mb-6 text-cyan-300">SEPARATION COMPLETE</h2>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+						<!-- Silent Video -->
+						<div class="space-y-4">
+							<h3 class="text-lg font-semibold text-purple-300">🎬 Silent Video</h3>
+							<video id="video-result" controls class="w-full max-w-sm mx-auto">
+								Your browser does not support the video tag.
+							</video>
+							<a id="video-download" href="#" download="silent-video.mp4" 
+							   class="cyber-button inline-block bg-purple-500/10 border-purple-400 text-purple-400 font-bold py-2 px-4 rounded-none text-sm">
+								⬇️ DOWNLOAD VIDEO
+							</a>
+						</div>
+						
+						<!-- Audio -->
+						<div class="space-y-4">
+							<h3 class="text-lg font-semibold text-green-300">🎵 Audio Track</h3>
+							<audio id="audio-result" controls class="w-full max-w-sm mx-auto">
+								Your browser does not support the audio tag.
+							</audio>
+							<a id="audio-download" href="#" download="audio.m4a" 
+							   class="cyber-button inline-block bg-green-500/10 border-green-400 text-green-400 font-bold py-2 px-4 rounded-none text-sm">
+								⬇️ DOWNLOAD AUDIO
+							</a>
+						</div>
+					</div>
+					
+					<!-- Transcription Section -->
+					<div id="transcription-section" class="cyber-card p-6">
+						<h3 class="text-xl font-semibold text-yellow-300 mb-4">📝 AI 转录</h3>
+						<div id="transcription-status" class="mb-4">
+							<div class="flex items-center space-x-3">
+								<div class="loader w-6 h-6"></div>
+								<span class="text-yellow-300">正在处理转录中...</span>
+								<span id="transcription-progress" class="text-gray-400"></span>
+							</div>
+						</div>
+						<div id="transcription-result" class="hidden">
+							<div class="bg-gray-800/50 p-4 rounded-lg max-h-64 overflow-y-auto">
+								<pre id="transcription-text" class="text-green-300 whitespace-pre-wrap text-sm"></pre>
+							</div>
+							<button id="copy-transcription" class="cyber-button bg-yellow-500/10 border-yellow-400 text-yellow-400 font-bold py-2 px-4 rounded-none text-sm mt-4">
+								📋 复制转录文本
+							</button>
+						</div>
+						<div id="transcription-error" class="hidden">
+							<p class="text-red-400 mb-2">转录处理失败</p>
+							<button id="retry-transcription" class="cyber-button bg-red-500/10 border-red-400 text-red-400 font-bold py-2 px-4 rounded-none text-sm">
+								🔄 重试转录
+							</button>
+						</div>
+					</div>
+				</div>
+				
+				<div id="error-container" class="hidden">
+					<h2 class="text-2xl font-semibold mb-4 text-red-400">ERROR</h2>
+					<p id="api-error-message" class="text-red-300 mb-4"></p>
+					<button onclick="location.reload()" class="cyber-button bg-red-500/10 border-red-400 text-red-400 font-bold py-2 px-4 rounded-none">
+						🔄 TRY AGAIN
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Footer -->
+		<footer class="text-center text-sm text-gray-500 mt-16 mb-8">
+			<p>
+				Made with ❤️ using
+				<a href="https://workers.cloudflare.com/" target="_blank" rel="noopener noreferrer" 
+				   class="text-cyan-400 hover:underline hover:text-shadow-[0_0_5px_#00f0f0]">Cloudflare Workers</a>
+				—
+				<a href="https://github.com/megaconfidence/separate" target="_blank" rel="noopener noreferrer" 
+				   class="text-cyan-400 hover:underline hover:text-shadow-[0_0_5px_#00f0f0]">👀 the code</a>
+			</p>
+		</footer>
+
+		<script>
+			document.addEventListener('DOMContentLoaded', function () {
+				const videoInput = document.getElementById('video-input');
+				const fileNameDisplay = document.getElementById('file-name');
+				const separationForm = document.getElementById('separation-form');
+				const submitButton = document.getElementById('submit-button');
+
+				const resultSection = document.getElementById('result-section');
+				const loader = document.getElementById('loader');
+				const resultContainer = document.getElementById('result-container');
+				const errorContainer = document.getElementById('error-container');
+				const apiErrorMessage = document.getElementById('api-error-message');
+				
+				const videoResult = document.getElementById('video-result');
+				const audioResult = document.getElementById('audio-result');
+				const videoDownload = document.getElementById('video-download');
+				const audioDownload = document.getElementById('audio-download');
+				
+				// 转录相关元素
+				const transcriptionSection = document.getElementById('transcription-section');
+				const transcriptionStatus = document.getElementById('transcription-status');
+				const transcriptionResult = document.getElementById('transcription-result');
+				const transcriptionError = document.getElementById('transcription-error');
+				const transcriptionText = document.getElementById('transcription-text');
+				const transcriptionProgress = document.getElementById('transcription-progress');
+				const copyTranscriptionBtn = document.getElementById('copy-transcription');
+				const retryTranscriptionBtn = document.getElementById('retry-transcription');
+
+				let videoFile = null;
+				const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
+				videoInput.addEventListener('change', (e) => {
+					if (e.target.files && e.target.files[0]) {
+						const selectedFile = e.target.files[0];
+
+						if (selectedFile.size > MAX_FILE_SIZE) {
+							alert('File is too large. Please select a file under 100MB.');
+							videoInput.value = '';
+							fileNameDisplay.textContent = '';
+							submitButton.disabled = true;
+							return;
+						}
+
+						videoFile = selectedFile;
+						fileNameDisplay.textContent = videoFile.name;
+						submitButton.disabled = false;
+					}
+				});
+
+				separationForm.addEventListener('submit', async (e) => {
+					e.preventDefault();
+					if (!videoFile) {
+						alert('Please select a video file first.');
+						return;
+					}
+
+					resultSection.classList.remove('hidden');
+					loader.classList.remove('hidden');
+					resultContainer.classList.add('hidden');
+					errorContainer.classList.add('hidden');
+
+					resultSection.scrollIntoView({ behavior: 'smooth' });
+
+					const formData = new FormData();
+					formData.append('video', videoFile);
+
+					try {
+						// 使用新的 /process 端点
+						const response = await fetch('/process', {
+							method: 'POST',
+							body: formData,
+						});
+
+						if (!response.ok) {
+							const errorText = await response.text();
+							throw new Error(errorText || `Server responded with status: ${response.status}`);
+						}
+
+						const result = await response.json();
+						
+						// 新的响应格式：{ id, details }
+						const taskId = result.id;
+						
+						// 开始监控整个处理状态（包括分离和转录）
+						monitorProcessing(taskId);
+						
+						loader.classList.add('hidden');
+						transcriptionStatus.classList.remove('hidden');
+					} catch (error) {
+						console.error('Separation failed:', error);
+						apiErrorMessage.textContent = error.message;
+						loader.classList.add('hidden');
+						errorContainer.classList.remove('hidden');
+					} finally {
+						resultSection.scrollIntoView({ behavior: 'smooth' });
+					}
+				});
+				
+				// 处理状态监控函数
+				let processingInterval = null;
+				let currentTaskId = null;
+				
+				async function monitorProcessing(taskId) {
+					currentTaskId = taskId;
+					transcriptionStatus.classList.remove('hidden');
+					transcriptionResult.classList.add('hidden');
+					transcriptionError.classList.add('hidden');
+					
+					processingInterval = setInterval(async () => {
+						try {
+							// 使用新的统一状态端点
+							const response = await fetch(`/status/${taskId}`);
+							const data = await response.json();
+							
+							if (data.status === 'complete') {
+								clearInterval(processingInterval);
+								// 获取处理结果
+								await loadProcessingResult(taskId);
+							} else if (data.status === 'errored') {
+								clearInterval(processingInterval);
+								showTranscriptionError();
+							} else if (data.status === 'running') {
+								// Workflow 正在运行
+								updateTranscriptionProgress(50); // 粗略进度指示
+							}
+						} catch (error) {
+							console.error('转录状态查询失败:', error);
+						}
+					}, 3000); // 每3秒查询一次
+				}
+				
+				async function loadProcessingResult(taskId) {
+					try {
+						// 获取完整结果（包含视频、音频和转录）
+						const resultResponse = await fetch(`/result/${taskId}`);
+						if (resultResponse.ok) {
+							const resultData = await resultResponse.json();
+							
+							// 设置视频和音频
+							videoResult.src = resultData.video_url;
+							audioResult.src = resultData.audio_url;
+							videoDownload.href = resultData.video_url;
+							audioDownload.href = resultData.audio_url;
+							
+							// 显示结果
+							loader.classList.add('hidden');
+							resultContainer.classList.remove('hidden');
+							
+							// 处理转录结果
+							if (resultData.transcription) {
+								showTranscriptionResult(resultData.transcription);
+							} else {
+								// 没有转录结果
+								transcriptionStatus.classList.add('hidden');
+							}
+						} else {
+							throw new Error(`获取结果失败: ${resultResponse.status}`);
+						}
+					} catch (error) {
+						console.error('获取处理结果失败:', error);
+						showTranscriptionError();
+					}
+				}
+				
+				function updateTranscriptionProgress(progress) {
+					transcriptionProgress.textContent = `(${progress}%)`;
+				}
+				
+				function showTranscriptionResult(data) {
+					transcriptionStatus.classList.add('hidden');
+					transcriptionResult.classList.remove('hidden');
+					
+					// 格式化转录结果
+					let formattedText = '';
+					if (data.result && data.result.segments) {
+						data.result.segments.forEach((segment, index) => {
+							formattedText += `[${formatTime(segment.startTime)}] ${segment.text}\n\n`;
+						});
+					} else if (data.result && data.result.text) {
+						formattedText = data.result.text;
+					} else {
+						formattedText = JSON.stringify(data.result, null, 2);
+					}
+					
+					transcriptionText.textContent = formattedText;
+				}
+				
+				function showTranscriptionError() {
+					transcriptionStatus.classList.add('hidden');
+					transcriptionError.classList.remove('hidden');
+				}
+				
+				function formatTime(seconds) {
+					const mins = Math.floor(seconds / 60);
+					const secs = Math.floor(seconds % 60);
+					return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+				}
+				
+				// 复制转录文本功能
+				copyTranscriptionBtn.addEventListener('click', async () => {
+					try {
+						await navigator.clipboard.writeText(transcriptionText.textContent);
+						copyTranscriptionBtn.textContent = '✅ 已复制';
+						setTimeout(() => {
+							copyTranscriptionBtn.textContent = '📋 复制转录文本';
+						}, 2000);
+					} catch (error) {
+						console.error('复制失败:', error);
+					}
+				});
+				
+				// 重试转录功能
+				retryTranscriptionBtn.addEventListener('click', () => {
+					if (currentTaskId) {
+						monitorTranscription(currentTaskId);
+					}
+				});
+			});
+		</script>
+	</body>
+</html>

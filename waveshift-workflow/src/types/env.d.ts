@@ -1,0 +1,84 @@
+// Workflows types are included in the Cloudflare Workers runtime
+import { WorkflowBinding } from 'cloudflare:workers';
+import { z } from 'zod';
+
+// FFmpeg Service Binding 接口 (WorkerEntrypoint)
+interface FFmpegService {
+	separate(params: {
+		inputKey: string;
+		audioOutputKey: string;
+		videoOutputKey: string;
+	}): Promise<{
+		audioKey: string;
+		videoKey: string;
+		audioSize: number;
+		videoSize: number;
+	}>;
+}
+
+interface Env {
+	// 存储绑定
+	SEPARATE_STORAGE: R2Bucket;
+	CLOUDFLARE_ACCOUNT_ID: string;
+	R2_BUCKET_NAME: string;
+	R2_PUBLIC_DOMAIN: string;
+	
+	// 服务绑定
+	FFMPEG_SERVICE: FFmpegService;
+	TRANSCRIBE_SERVICE: Fetcher;
+	
+	// 其他绑定
+	SEP_TRANS_PROCESSOR: WorkflowBinding;
+	TRANSCRIPTION_DB: D1Database;
+}
+
+// Zod 验证模式
+export const ProcessingOptions = z.object({
+	targetLanguage: z.enum(['chinese', 'english']).default('chinese'),
+	style: z.enum(['normal', 'classical']).default('normal'),
+	startTime: z.number().gte(0).optional(),
+	endTime: z.number().gte(0).optional()
+});
+
+export type ProcessingOptionsType = z.infer<typeof ProcessingOptions>;
+
+// 转录任务状态
+type TranscriptionStatus = 'processing' | 'completed' | 'failed';
+
+// 转录任务数据结构
+interface TranscriptionTask {
+	id: string;
+	status: TranscriptionStatus;
+	audio_url: string;
+	video_url: string;
+	created_at: string;
+	updated_at: string;
+	completed_at?: string;
+}
+
+// 转录结果数据结构
+interface TranscriptionResult {
+	task_id: string;
+	result: any;
+	metadata: {
+		audioUrl: string;
+		duration?: string;
+		segmentCount?: number;
+		processedAt: string;
+	};
+}
+
+// Workflow 参数
+interface SepTransWorkflowParams {
+	originalFile: string;
+	fileType: string;
+	options: ProcessingOptionsType;
+}
+
+export { 
+	Env, 
+	TranscriptionStatus, 
+	TranscriptionTask, 
+	TranscriptionResult, 
+	SepTransWorkflowParams 
+};
