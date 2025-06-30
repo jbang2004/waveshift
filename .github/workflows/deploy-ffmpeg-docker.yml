@@ -16,12 +16,15 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: waveshift-ffmpeg-container
+  IMAGE_NAME: ${{ github.repository }}/waveshift-ffmpeg-container
 
 jobs:
   deploy-ffmpeg:
     runs-on: ubuntu-latest
     name: Build and Deploy FFmpeg Worker
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout repository
@@ -108,8 +111,12 @@ jobs:
         run: |
           cd waveshift-ffmpeg-worker
           # 临时更新 wrangler.jsonc 使用注册表镜像
-          jq '.containers[0].image = "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"' wrangler.jsonc > wrangler.jsonc.tmp
+          IMAGE_URL="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          echo "更新容器镜像地址为: $IMAGE_URL"
+          jq --arg img "$IMAGE_URL" '.containers[0].image = $img' wrangler.jsonc > wrangler.jsonc.tmp
           mv wrangler.jsonc.tmp wrangler.jsonc
+          echo "验证更新后的配置:"
+          cat wrangler.jsonc
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
