@@ -1,0 +1,11 @@
+/_next/static/*
+  Cache-Control: public,max-age=31536000,immutable
+
+/favicon.ico
+  Cache-Control: public,max-age=86400
+
+/opengraph-image.png
+  Cache-Control: public,max-age=86400
+
+/twitter-image.png
+  Cache-Control: public,max-age=86400 

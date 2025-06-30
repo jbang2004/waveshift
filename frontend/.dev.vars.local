@@ -1,0 +1,15 @@
+NEXTJS_ENV=development
+
+# NextAuth.js 配置
+# NEXTAUTH_SECRET=your-nextauth-secret
+# NEXTAUTH_URL=http://localhost:3001
+
+# 后端API配置 - 请替换为你的实际值  
+# NEXT_PUBLIC_BACKEND_URL=https://your-api.example.com
+# NEXT_PUBLIC_BACKEND_PORT=
+
+# 如果你有实际的配置，请取消注释并填入真实值
+# 如果暂时没有，我们可以使用占位符进行测试部署
+NEXTAUTH_SECRET=your-nextauth-secret-here
+NEXTAUTH_URL=http://localhost:3001
+NEXT_PUBLIC_BACKEND_URL=https://placeholder-api.example.com 

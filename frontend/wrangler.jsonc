@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "waveshift-frontend",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "waveshift-database",
+      "database_id": "005024c1-ef6e-4f7d-8b86-07995a53dc49",
+      "migrations_dir": "db/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "videos"
+    }
+  ],
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "waveshift-frontend"
+    },
+    {
+      "binding": "WORKFLOW_SERVICE",
+      "service": "waveshift-workflow",
+      "environment": "production"
+    }
+  ],
+  "vars": {
+    "NEXTJS_ENV": "production",
+    "NODE_ENV": "production",
+    "NEXT_PUBLIC_R2_CUSTOM_DOMAIN": "https://r2.waveshift.net",
+    "NEXT_PUBLIC_R2_BUCKET_NAME": "videos",
+    "R2_BUCKET_NAME": "videos",
+    "R2_ENDPOINT": "https://1298fa35ac940c688dc1b6d8f5eead72.r2.cloudflarestorage.com",
+    "R2_REGION": "auto"
+  }
+} 
