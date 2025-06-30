@@ -11,6 +11,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 开发命令
 
+### 前端应用 (frontend)
+```bash
+cd frontend
+
+# 本地开发
+npm run dev              # 启动开发服务器 (http://localhost:3001)
+
+# 构建和部署 - 重要：使用正确的OpenNext构建流程
+npm run deploy           # 执行 opennextjs-cloudflare build && opennextjs-cloudflare deploy
+
+# 数据库管理
+npm run db:generate      # 生成数据库迁移
+npm run db:migrate       # 应用数据库迁移
+npm run db:studio        # 打开数据库管理界面
+
+# 类型检查和代码质量
+npm run type-check       # TypeScript 类型检查
+npm run lint             # ESLint 代码检查
+```
+
 ### Gemini 转录服务 (gemini-transcribe-worker)
 ```bash
 cd gemini-transcribe-worker
@@ -118,6 +138,43 @@ cargo run --release      # 本地运行 Rust 服务器
 - **安全措施**: 文件名清理防止路径注入攻击
 
 ## 故障排除
+
+### 前端应用常见问题
+
+1. **500内部服务器错误 (API路由失败)**
+   - **症状**: 文件上传失败，返回 `{"error":"Failed to create media task"}`
+   - **根本原因**: 通常是OpenNext构建流程错误或数据库表缺失
+   - **解决方案**: 
+     ```bash
+     # 1. 确认使用正确的构建命令
+     npm run deploy  # 应该执行 opennextjs-cloudflare build
+     
+     # 2. 初始化数据库表
+     curl -X GET https://your-worker.workers.dev/api/setup
+     curl -X POST https://your-worker.workers.dev/api/init-media-tables
+     
+     # 3. 检查部署是否成功
+     ls -la .open-next/  # 应该存在且包含最新代码
+     ```
+   - **详细排查**: 参见 `frontend/TROUBLESHOOTING.md`
+
+2. **构建失败或代码修改未生效**
+   - **原因**: 使用了 `next build` 而非 `opennextjs-cloudflare build`
+   - **解决**: 清理缓存并重新构建
+     ```bash
+     rm -rf .next .open-next
+     npm run deploy
+     ```
+
+3. **数据库外键约束失败**
+   - **错误**: `FOREIGN KEY constraint failed: SQLITE_CONSTRAINT`
+   - **原因**: 缺少必要的数据库表或用户数据
+   - **解决**: 运行数据库初始化脚本
+
+4. **JWT认证失败**
+   - **症状**: 有cookie但仍返回401
+   - **原因**: JWT_SECRET变更导致现有token失效
+   - **解决**: 用户重新登录
 
 ### Gemini 转录服务常见错误
 1. **`curl: (56) Failure when receiving data from the peer`**

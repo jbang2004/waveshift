@@ -19,30 +19,46 @@ const app = new Hono<{ Bindings: Env }>();
 app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
 	const id = c.req.param('id');
 	try {
-		const videoUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/videos/${id}-silent.mp4`;
-		const audioUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/audio/${id}-audio.aac`;
+		const videoUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/processed/${id}-silent.mp4`;
+		const audioUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/processed/${id}-audio.aac`;
 		
 		// 检查文件是否存在
-		const videoExists = await c.env.SEPARATE_STORAGE.head(`videos/${id}-silent.mp4`);
-		const audioExists = await c.env.SEPARATE_STORAGE.head(`audio/${id}-audio.aac`);
+		const videoExists = await c.env.SEPARATE_STORAGE.head(`processed/${id}-silent.mp4`);
+		const audioExists = await c.env.SEPARATE_STORAGE.head(`processed/${id}-audio.aac`);
 		
 		if (!videoExists || !audioExists) {
 			return c.json({ error: 'Files not found' }, 404);
 		}
 		
-		// 获取转录结果
+		// 获取转录结果（使用前端的表结构）
 		let transcription = null;
 		try {
-			const transcriptionResult = await c.env.TRANSCRIPTION_DB.prepare(
-				"SELECT * FROM transcription_results WHERE task_id = ?"
+			// 获取媒体任务信息
+			const taskResult = await c.env.DB.prepare(
+				"SELECT * FROM media_tasks WHERE id = ?"
 			).bind(id).first();
 			
-			if (transcriptionResult) {
-				transcription = {
-					task_id: transcriptionResult.task_id,
-					result: JSON.parse(transcriptionResult.result as string),
-					metadata: JSON.parse(transcriptionResult.metadata as string)
-				};
+			if (taskResult && taskResult.transcriptionId) {
+				// 获取转录任务信息
+				const transcriptionResult = await c.env.DB.prepare(
+					"SELECT * FROM transcriptions WHERE id = ?"
+				).bind(taskResult.transcriptionId).first();
+				
+				if (transcriptionResult) {
+					// 获取转录片段
+					const segmentsResult = await c.env.DB.prepare(
+						"SELECT sequence, start, end, contentType, speaker, original, translation FROM transcription_segments WHERE transcriptionId = ? ORDER BY sequence ASC"
+					).bind(taskResult.transcriptionId).all();
+					
+					transcription = {
+						task_id: id,
+						targetLanguage: transcriptionResult.targetLanguage,
+						style: transcriptionResult.style,
+						status: taskResult.status,
+						segments: segmentsResult.results || [],
+						totalSegments: segmentsResult.results?.length || 0
+					};
+				}
 			}
 		} catch (transcriptionError) {
 			console.error('获取转录结果失败:', transcriptionError);

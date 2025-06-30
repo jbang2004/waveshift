@@ -17,14 +17,15 @@
 	"r2_buckets": [
 		{
 			"binding": "SEPARATE_STORAGE",
-			"bucket_name": "separate-audio-video",
-			"preview_bucket_name": "separate-audio-video-preview"
+			"bucket_name": "videos",
+			"preview_bucket_name": "videos-preview"
 		}
 	],
 	"vars": {
 		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
-		"R2_BUCKET_NAME": "separate-audio-video",
-		"R2_PUBLIC_DOMAIN": "separate.waveshift.net"
+		"R2_BUCKET_NAME": "videos",
+		"R2_PUBLIC_DOMAIN": "r2.waveshift.net",
+		"WORKFLOW_CALLBACK_SECRET": "waveshift-callback-secret-2025"
 	},
 	/**
 	 * Smart Placement
@@ -70,6 +71,11 @@
 			"binding": "TRANSCRIBE_SERVICE",
 			"service": "transcribe-worker",
 			"environment": "production"
+		},
+		{
+			"binding": "FRONTEND_SERVICE",
+			"service": "waveshift-frontend",
+			"environment": "production"
 		}
 	],
 	
@@ -91,9 +97,9 @@
 	 */
 	"d1_databases": [
 		{
-			"binding": "TRANSCRIPTION_DB",
-			"database_name": "separate-transcriptions",
-			"database_id": "c72e121d-ec4a-4e9d-8726-8793b1a74167"
+			"binding": "DB",
+			"database_name": "waveshift-database",
+			"database_id": "005024c1-ef6e-4f7d-8b86-07995a53dc49"
 		}
 	]
 }

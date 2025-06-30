@@ -26,10 +26,14 @@ interface Env {
 	// 服务绑定
 	FFMPEG_SERVICE: FFmpegService;
 	TRANSCRIBE_SERVICE: Fetcher;
+	FRONTEND_SERVICE?: Fetcher; // 新增：Frontend Service Binding (可选)
 	
 	// 其他绑定
 	SEP_TRANS_PROCESSOR: WorkflowBinding;
-	TRANSCRIPTION_DB: D1Database;
+	DB: D1Database;
+	
+	// 环境变量
+	WORKFLOW_CALLBACK_SECRET?: string; // 新增：回调认证密钥
 }
 
 // Zod 验证模式
@@ -73,6 +77,8 @@ interface SepTransWorkflowParams {
 	originalFile: string;
 	fileType: string;
 	options: ProcessingOptionsType;
+	userId?: string; // 新增：用户ID
+	taskId?: string; // 新增：任务ID
 }
 
 export { 
