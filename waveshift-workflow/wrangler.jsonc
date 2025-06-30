@@ -62,8 +62,19 @@
 	 */
 	"services": [
 		{
+			"binding": "FFMPEG_SERVICE",
+			"service": "waveshift-ffmpeg-worker",
+			"environment": "production",
+			"entrypoint": "FFmpegWorker"
+		},
+		{
 			"binding": "TRANSCRIBE_SERVICE",
 			"service": "waveshift-transcribe-worker",
+			"environment": "production"
+		},
+		{
+			"binding": "FRONTEND_SERVICE",
+			"service": "waveshift-frontend",
 			"environment": "production"
 		}
 	],
