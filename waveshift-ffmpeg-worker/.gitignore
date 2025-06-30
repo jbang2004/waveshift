@@ -16,7 +16,6 @@ worker-configuration.d.ts
 
 # Rust (separate-container)
 separate-container/target/
-separate-container/Cargo.lock
 
 # Cloudflare Workers
 .wrangler/
