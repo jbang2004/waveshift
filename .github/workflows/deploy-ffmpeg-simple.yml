@@ -1,0 +1,48 @@
+name: Deploy FFmpeg Worker (Simple)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'waveshift-ffmpeg-worker/**'
+    branches: [main]
+
+jobs:
+  deploy-ffmpeg-simple:
+    runs-on: ubuntu-latest
+    name: Simple FFmpeg Worker Deploy
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd waveshift-ffmpeg-worker
+          npm install
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          cd waveshift-ffmpeg-worker
+          docker build -t ffmpeg-container .
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: './waveshift-ffmpeg-worker'
+
+      - name: Verify deployment
+        run: |
+          echo "✅ FFmpeg Worker 部署完成！"
+          echo "🔗 URL: https://waveshift-ffmpeg-worker.您的账户.workers.dev"

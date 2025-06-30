@@ -35,8 +35,9 @@ jobs:
           cache-dependency-path: './waveshift-ffmpeg-worker/package-lock.json'
 
       - name: Install Worker dependencies
-        working-directory: ./waveshift-ffmpeg-worker
-        run: npm ci
+        run: |
+          cd waveshift-ffmpeg-worker
+          npm ci
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -104,8 +105,8 @@ jobs:
           docker stop ffmpeg-test
 
       - name: Update wrangler.jsonc with registry image
-        working-directory: ./waveshift-ffmpeg-worker
         run: |
+          cd waveshift-ffmpeg-worker
           # 临时更新 wrangler.jsonc 使用注册表镜像
           jq '.containers[0].image = "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"' wrangler.jsonc > wrangler.jsonc.tmp
           mv wrangler.jsonc.tmp wrangler.jsonc
@@ -119,8 +120,8 @@ jobs:
           workingDirectory: './waveshift-ffmpeg-worker'
 
       - name: Verify deployment
-        working-directory: ./waveshift-ffmpeg-worker
         run: |
+          cd waveshift-ffmpeg-worker
           echo "🎯 验证部署状态..."
           
           # 获取部署后的 Worker URL
