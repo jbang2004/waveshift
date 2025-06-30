@@ -52,8 +52,28 @@ deploy_service() {
     
     # 根据服务类型选择部署命令
     if [ "$service" = "waveshift-frontend" ]; then
+        echo -e "  ${YELLOW}→${NC} 使用 OpenNext 构建和部署前端..."
         npm run deploy  # 这会运行 opennextjs-cloudflare build && deploy
+    elif [ "$service" = "waveshift-ffmpeg-worker" ]; then
+        echo -e "  ${YELLOW}→${NC} 检查 Docker 是否可用..."
+        if command -v docker &> /dev/null; then
+            echo -e "  ${GREEN}✓${NC} Docker 可用，构建容器镜像..."
+            docker build -t ffmpeg-container . || {
+                echo -e "  ${RED}✗${NC} Docker 构建失败"
+                cd - > /dev/null
+                return 1
+            }
+            echo -e "  ${GREEN}✓${NC} 容器构建成功"
+        else
+            echo -e "  ${RED}✗${NC} Docker 不可用，将跳过容器构建"
+            echo -e "  ${YELLOW}!${NC} 注意：FFmpeg Worker 需要 Docker 来构建容器"
+            echo -e "  ${YELLOW}!${NC} 建议使用 GitHub Actions 进行完整部署"
+        fi
+        
+        echo -e "  ${YELLOW}→${NC} 部署 Worker 服务..."
+        npm run deploy  # wrangler deploy
     else
+        echo -e "  ${YELLOW}→${NC} 标准 Worker 部署..."
         npm run deploy  # 标准 wrangler deploy
     fi
     

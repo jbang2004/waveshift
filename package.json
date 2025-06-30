@@ -6,6 +6,7 @@
   "scripts": {
     "deploy:all": "./deploy-all.sh",
     "deploy:smart": "./scripts/smart-deploy.sh",
+    "deploy:docker": "./scripts/deploy-docker.sh",
     "deploy:frontend": "cd waveshift-frontend && npm run deploy",
     "deploy:workflow": "cd waveshift-workflow && npm run deploy",
     "deploy:ffmpeg": "cd waveshift-ffmpeg-worker && npm run deploy",

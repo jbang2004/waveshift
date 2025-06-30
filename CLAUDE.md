@@ -4,16 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个媒体处理工具集，包含两个主要组件：
+这是一个媒体处理平台，包含四个主要组件：
 
-1. **gemini-transcribe-worker**: 基于 Gemini API 的音频转录和翻译服务，运行在 Cloudflare Workers 上
-2. **seprate_worker**: 音视频分离工具 Wifski，使用 Cloudflare Workers + Rust 容器架构
+1. **waveshift-frontend**: Next.js 前端应用，提供用户界面和媒体处理工作流
+2. **waveshift-workflow**: 工作流编排服务，协调各个处理步骤
+3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Rust 容器 + FFMPEG
+4. **waveshift-transcribe-worker**: 基于 Gemini API 的音频转录和翻译服务
 
 ## 开发命令
 
-### 前端应用 (frontend)
+### 根目录统一命令
 ```bash
-cd frontend
+# 🚀 推荐部署方式
+npm run deploy:smart     # 智能部署 - 只部署有更改的服务
+npm run deploy:docker    # GitHub Actions Docker 部署 - 适用于容器服务
+
+# 其他部署选项  
+npm run deploy:all       # 完整部署 - 部署所有服务
+
+# 开发模式
+npm run dev:all          # 启动所有服务开发模式
+npm run dev:frontend     # 只启动前端
+npm run dev:workflow     # 只启动工作流服务
+npm run dev:ffmpeg       # 只启动FFmpeg服务
+npm run dev:transcribe   # 只启动转录服务
+```
+
+### 前端应用 (waveshift-frontend)
+```bash
+cd waveshift-frontend
 
 # 本地开发
 npm run dev              # 启动开发服务器 (http://localhost:3001)
@@ -31,9 +50,41 @@ npm run type-check       # TypeScript 类型检查
 npm run lint             # ESLint 代码检查
 ```
 
-### Gemini 转录服务 (gemini-transcribe-worker)
+### 工作流服务 (waveshift-workflow)
 ```bash
-cd gemini-transcribe-worker
+cd waveshift-workflow
+
+# 本地开发
+npm run dev              # 启动开发服务器 (http://localhost:8787)
+
+# 构建和部署
+npm run build            # TypeScript 编译
+npm run deploy           # 部署到 Cloudflare Workers
+```
+
+### 音视频处理服务 (waveshift-ffmpeg-worker) ⚠️ 需要 Docker
+```bash
+cd waveshift-ffmpeg-worker
+
+# 本地开发 (需要 Docker)
+# 终端1: 构建并运行容器
+docker build -t ffmpeg-container .
+docker run -p 8080:8080 ffmpeg-container
+
+# 终端2: 运行 Cloudflare Worker
+npm run dev              # 启动开发服务器 (http://localhost:8787)
+
+# 🚀 推荐部署方式：使用 GitHub Actions
+# 从根目录运行：
+npm run deploy:docker    # 触发 GitHub Actions Docker 部署
+
+# 本地部署 (需要本地 Docker 环境)
+npm run deploy           # 构建容器并部署 Worker
+```
+
+### AI 转录服务 (waveshift-transcribe-worker)
+```bash
+cd waveshift-transcribe-worker
 
 # 本地开发
 npm run dev              # 启动开发服务器 (http://localhost:8787)
@@ -44,27 +95,6 @@ npm run deploy           # 部署到 Cloudflare Workers
 
 # 配置 API 密钥
 wrangler secret put GEMINI_API_KEY
-```
-
-### 音视频分离服务 (seprate_worker)
-```bash
-cd seprate_worker
-
-# 全栈开发 (需要两个终端)
-# 终端1: 构建并运行后端容器
-docker build -t wifski-container .
-docker run -p 8080:8080 wifski-container
-
-# 终端2: 运行 Cloudflare Worker (代理到本地容器)
-npm run dev              # 启动开发服务器 (http://localhost:8787)
-
-# 部署
-npm run deploy           # 构建容器、推送到注册表、部署 Worker
-npm run cf-typegen       # 从 wrangler.jsonc 生成 TypeScript 类型
-
-# 容器后端开发 (在 wifski-container/ 目录)
-cargo build --release    # 构建 Rust 二进制文件
-cargo run --release      # 本地运行 Rust 服务器
 ```
 
 ## 架构说明
@@ -198,15 +228,73 @@ cargo run --release      # 本地运行 Rust 服务器
    - 验证所有 R2 相关环境变量
    - 检查 Cloudflare 账户权限
 
-## 部署前检查
+## 部署方式说明
 
-### Gemini 转录服务
+### 🚀 GitHub Actions Docker 部署 (推荐)
+适用于 **waveshift-ffmpeg-worker** 等需要容器的服务：
+
+```bash
+# 从根目录运行
+npm run deploy:docker
+```
+
+**优势**：
+- ✅ 自动 Docker 构建和缓存
+- ✅ 使用 GitHub 容器注册表
+- ✅ 构建时测试和验证
+- ✅ 支持强制重建选项
+- ✅ 无需本地 Docker 环境
+
+**GitHub Actions 工作流**：
+- `deploy-ffmpeg-docker.yml`: 专门用于 FFmpeg Worker 的完整 Docker 部署
+- `deploy-services.yml`: 通用服务部署，包含基本 Docker 支持
+
+### 🔧 本地部署
+适用于快速开发和测试：
+
+```bash
+# 智能部署 (推荐)
+npm run deploy:smart
+
+# 完整部署
+npm run deploy:all
+```
+
+**限制**：
+- ⚠️ 需要本地 Docker 环境
+- ⚠️ 构建时间较长
+- ⚠️ 无自动缓存优化
+
+### 📋 部署前检查
+
+#### 全局要求
+- [ ] 设置 `CLOUDFLARE_API_TOKEN` 环境变量或 GitHub Secret
+- [ ] 设置 `CLOUDFLARE_ACCOUNT_ID` 环境变量或 GitHub Secret
+- [ ] 确保 GitHub CLI (`gh`) 已安装和登录 (用于 Docker 部署)
+
+#### waveshift-frontend
+- [ ] 配置数据库连接 (D1)
+- [ ] 设置 JWT_SECRET
+- [ ] 验证 Service Binding 配置
+
+#### waveshift-workflow  
+- [ ] 配置 Service Binding 到 FFmpeg Worker
+- [ ] 配置 Service Binding 到 Transcribe Worker
+- [ ] 设置 R2 存储权限
+
+#### waveshift-ffmpeg-worker (Docker 部署)
+- [ ] 确保 GitHub 容器注册表权限
+- [ ] 配置 R2 存储绑定
+- [ ] 验证容器健康检查端点
+- [ ] 测试 FFMPEG 功能
+
+#### waveshift-transcribe-worker
 - [ ] 设置 `GEMINI_API_KEY` secret
 - [ ] 配置 `MAX_CONCURRENT_REQUESTS` (基于 API 计划)
 - [ ] 如需处理大文件，考虑升级到付费计划并配置 `cpu_ms`
 
-### Wifski
-- [ ] 配置所有 R2 环境变量
-- [ ] 确保 Dockerfile 构建成功
-- [ ] 验证容器注册表访问权限
-- [ ] 测试本地开发环境 (容器 + Worker)
+## 🔗 有用链接
+
+- **GitHub Actions**: [查看工作流状态](https://github.com/your-org/waveshift/actions)
+- **容器注册表**: [管理容器镜像](https://github.com/your-org/waveshift/pkgs/container/waveshift-ffmpeg-container)
+- **Cloudflare Dashboard**: [管理 Workers 和 R2](https://dash.cloudflare.com)

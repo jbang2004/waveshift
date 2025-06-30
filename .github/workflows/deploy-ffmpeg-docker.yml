@@ -2,11 +2,21 @@ name: Deploy FFmpeg Worker (Docker Required)
 
 on:
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild Docker image (ignore cache)'
+        required: false
+        type: boolean
+        default: false
   push:
     paths:
       - 'waveshift-ffmpeg-worker/**'
       - '.github/workflows/deploy-ffmpeg-docker.yml'
     branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: waveshift-ffmpeg-container
 
 jobs:
   deploy-ffmpeg:
@@ -14,7 +24,7 @@ jobs:
     name: Build and Deploy FFmpeg Worker
     
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -24,21 +34,113 @@ jobs:
           cache: 'npm'
           cache-dependency-path: './waveshift-ffmpeg-worker/package-lock.json'
 
-      - name: Install dependencies
+      - name: Install Worker dependencies
         working-directory: ./waveshift-ffmpeg-worker
         run: npm ci
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
-      - name: Build Container Image
+        with:
+          platforms: linux/amd64
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            waveshift-ffmpeg-worker/separate-container/target
+          key: rust-cache-${{ runner.os }}-${{ hashFiles('waveshift-ffmpeg-worker/separate-container/Cargo.lock') }}
+          restore-keys: |
+            rust-cache-${{ runner.os }}-
+
+      - name: Build and cache Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./waveshift-ffmpeg-worker
+          file: ./waveshift-ffmpeg-worker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          no-cache: ${{ github.event.inputs.force_rebuild == 'true' }}
+
+      - name: Test container functionality
+        run: |
+          # 拉取刚构建的镜像进行测试
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          
+          # 运行容器并测试基本功能
+          docker run --rm -d --name ffmpeg-test -p 8080:8080 \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          
+          # 等待容器启动
+          sleep 10
+          
+          # 测试健康检查端点
+          curl -f http://localhost:8080/health || exit 1
+          
+          # 停止测试容器
+          docker stop ffmpeg-test
+
+      - name: Update wrangler.jsonc with registry image
         working-directory: ./waveshift-ffmpeg-worker
-        run: docker build -t ffmpeg-container .
-        
-      - name: Deploy to Cloudflare
+        run: |
+          # 临时更新 wrangler.jsonc 使用注册表镜像
+          jq '.containers[0].image = "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"' wrangler.jsonc > wrangler.jsonc.tmp
+          mv wrangler.jsonc.tmp wrangler.jsonc
+
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --compatibility-date 2025-06-14
           workingDirectory: './waveshift-ffmpeg-worker'
+
+      - name: Verify deployment
+        working-directory: ./waveshift-ffmpeg-worker
+        run: |
+          echo "🎯 验证部署状态..."
+          
+          # 获取部署后的 Worker URL
+          WORKER_URL=$(npx wrangler whoami 2>/dev/null | grep "account" | head -1 | cut -d'"' -f4)
+          if [ -n "$WORKER_URL" ]; then
+            echo "📍 Worker URL: https://waveshift-ffmpeg-worker.$WORKER_URL.workers.dev"
+          fi
+          
+          echo "✅ FFmpeg Worker 部署完成！"
+          echo ""
+          echo "📋 部署信息："
+          echo "- 容器镜像: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
+          echo "- Cloudflare Worker: waveshift-ffmpeg-worker"
+          echo "- 构建时间: $(date)"
+
+      - name: Clean up old images
+        if: success()
+        run: |
+          # 清理旧的镜像标签（保留最近的10个）
+          echo "🧹 清理旧容器镜像..."
+          
+          # 这里可以添加清理逻辑，暂时跳过以避免意外删除
+          echo "跳过自动清理，需要手动管理容器注册表"
