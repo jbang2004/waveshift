@@ -1,0 +1,29 @@
+{
+  "name": "waveshift",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WaveShift - Microservices Media Processing Platform",
+  "scripts": {
+    "deploy:all": "./deploy-all.sh",
+    "deploy:smart": "./scripts/smart-deploy.sh",
+    "deploy:frontend": "cd waveshift-frontend && npm run deploy",
+    "deploy:workflow": "cd waveshift-workflow && npm run deploy",
+    "deploy:ffmpeg": "cd waveshift-ffmpeg-worker && npm run deploy",
+    "deploy:transcribe": "cd waveshift-transcribe-worker && npm run deploy",
+    "dev:all": "concurrently \"npm run dev:frontend\" \"npm run dev:workflow\" \"npm run dev:ffmpeg\"",
+    "dev:frontend": "cd waveshift-frontend && npm run dev",
+    "dev:workflow": "cd waveshift-workflow && npm run dev",
+    "dev:ffmpeg": "cd waveshift-ffmpeg-worker && npm run dev",
+    "dev:transcribe": "cd waveshift-transcribe-worker && npm run dev",
+    "status": "node scripts/check-deployment-status.js"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
+  "workspaces": [
+    "waveshift-frontend",
+    "waveshift-workflow",
+    "waveshift-ffmpeg-worker", 
+    "waveshift-transcribe-worker"
+  ]
+}

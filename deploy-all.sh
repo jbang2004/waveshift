@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo ""
 echo "1️⃣ 部署 FFmpeg Worker..."
 echo "------------------------"
-cd "$SCRIPT_DIR/ffmpeg-worker"
+cd "$SCRIPT_DIR/waveshift-ffmpeg-worker"
 if [ -f "deploy.sh" ]; then
     ./deploy.sh
     if [ $? -ne 0 ]; then
@@ -24,7 +24,7 @@ if [ -f "deploy.sh" ]; then
         exit 1
     fi
 else
-    echo "⚠️ 没有找到 ffmpeg-worker/deploy.sh，使用 wrangler 直接部署..."
+    echo "⚠️ 没有找到 waveshift-ffmpeg-worker/deploy.sh，使用 wrangler 直接部署..."
     npm install
     npx wrangler deploy
     if [ $? -ne 0 ]; then

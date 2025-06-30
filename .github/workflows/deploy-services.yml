@@ -1,0 +1,149 @@
+name: Deploy Changed Services
+
+on:
+  # push:
+  #   branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: 'Deploy all services'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ffmpeg: ${{ steps.changes.outputs.ffmpeg }}
+      transcribe: ${{ steps.changes.outputs.transcribe }}
+      workflow: ${{ steps.changes.outputs.workflow }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            ffmpeg:
+              - 'waveshift-ffmpeg-worker/**'
+            transcribe:
+              - 'waveshift-transcribe-worker/**'
+            workflow:
+              - 'waveshift-workflow/**'
+            frontend:
+              - 'waveshift-frontend/**'
+            shared:
+              - 'shared/**'
+              - 'types/**'
+
+  deploy-ffmpeg-worker:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ffmpeg == 'true' || github.event.inputs.deploy_all == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-ffmpeg-worker
+          npm ci
+          
+      - name: Deploy to Cloudflare
+        run: |
+          cd waveshift-ffmpeg-worker
+          npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-transcribe-worker:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.transcribe == 'true' || github.event.inputs.deploy_all == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-transcribe-worker
+          npm ci
+          
+      - name: Deploy to Cloudflare
+        run: |
+          cd waveshift-transcribe-worker
+          npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-waveshift-workflow:
+    needs: [deploy-ffmpeg-worker, deploy-transcribe-worker, detect-changes]
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.workflow == 'true' || 
+       needs.detect-changes.outputs.shared == 'true' ||
+       github.event.inputs.deploy_all == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-workflow
+          npm ci
+          
+      - name: Deploy to Cloudflare
+        run: |
+          cd waveshift-workflow
+          npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-frontend:
+    needs: [deploy-waveshift-workflow, detect-changes]
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.frontend == 'true' || 
+       needs.detect-changes.outputs.shared == 'true' ||
+       github.event.inputs.deploy_all == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-frontend
+          npm ci
+          
+      - name: Build and Deploy to Cloudflare
+        run: |
+          cd waveshift-frontend
+          npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

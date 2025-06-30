@@ -1,13 +1,54 @@
-# WaveShift 统一部署指南
+# WaveShift 部署指南
 
-## 🎯 Monorepo 架构说明
+## 🚀 快速部署
 
-本项目采用 Monorepo 架构，所有微服务在同一个仓库中，使用统一的 GitHub Actions 进行部署。
+### 前置要求
+```bash
+# 登录 Cloudflare（推荐）
+wrangler login
 
+# 或设置环境变量
+export CLOUDFLARE_API_TOKEN=your-token
+export CLOUDFLARE_ACCOUNT_ID=your-account-id
 ```
-waveshift/
-├── .github/workflows/
-│   └── deploy-all.yml          # 🚀 统一部署配置
+
+## 📦 各服务部署方式
+
+### 1. Frontend（手动部署）
+```bash
+cd frontend
+npm run deploy  # 自动执行 build 和 deploy
+```
+
+### 2. WaveShift Workflow（手动部署）
+```bash
+cd waveshift-workflow
+npm run deploy
+```
+
+### 3. Transcribe Worker（手动部署）
+```bash
+cd transcribe-worker
+
+# 首次部署需要设置 API Key
+wrangler secret put GEMINI_API_KEY
+# 输入你的 Gemini API Key
+
+npm run deploy
+```
+
+### 4. FFmpeg Worker（需要 Docker，使用 GitHub Actions）
+- **自动部署**：推送到 `ffmpeg-worker/` 目录会自动触发
+- **手动部署**：在 GitHub Actions 页面手动触发 "Deploy FFmpeg Worker (Docker Required)"
+
+## 🎯 部署顺序
+
+重要：必须按照以下顺序部署（因为服务依赖）
+
+1. **transcribe-worker** - 独立服务，可以先部署
+2. **ffmpeg-worker** - 独立服务，可以先部署  
+3. **waveshift-workflow** - 依赖上面两个服务
+4. **frontend** - 依赖 workflow 服务
 ├── ffmpeg-worker/              # 音视频处理服务
 ├── waveshift-workflow/         # 主工作流服务
 ├── gemini-transcribe-worker/   # AI 转录服务

@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "ffmpeg-worker",
+	"name": "waveshift-ffmpeg-worker",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-06-14",
 	"compatibility_flags": ["nodejs_compat"],

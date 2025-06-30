@@ -86,42 +86,98 @@ app.get('/status/:id', async (c: Context<{ Bindings: Env }>) => {
 	}
 });
 
-// 上传和处理文件
-app.post('/process', async (c: Context<{ Bindings: Env }>) => {
-	const body = await c.req.parseBody();
-	const file = body[Object.keys(body)[0]] as File;
-
-	if (!file) {
-		return c.json({ error: 'No file provided' }, 400);
-	}
-
-	// 基本安全校验：限制大小与类型
-	if (file.size > MAX_FILE_SIZE_BYTES) {
-		return c.json({ error: `File too large. Max ${MAX_FILE_SIZE_BYTES / (1024 * 1024)} MB allowed.` }, 400);
-	}
-	if (!ALLOWED_VIDEO_TYPES.includes(file.type)) {
-		return c.json({ error: `Unsupported file type ${file.type}` }, 400);
-	}
-
-	const id = crypto.randomUUID();
+// 启动文件处理工作流
+app.post('/start', async (c: Context<{ Bindings: Env }>) => {
+	const contentType = c.req.header('content-type');
 	
-	// 上传原始文件到 R2
-	await c.env.SEPARATE_STORAGE.put(id, file);
+	if (contentType?.includes('multipart/form-data')) {
+		// 模式1: 文件上传模式（保持现有逻辑）
+		const body = await c.req.parseBody();
+		const file = body[Object.keys(body)[0]] as File;
 
-	// 创建统一处理工作流
-	const workflow = await c.env.SEP_TRANS_PROCESSOR.create({ 
-		params: { 
-			originalFile: id,
-			fileType: file.type,
-			options: DEFAULT_PROCESSING_OPTIONS 
-		}, 
-		id 
-	});
-	
-	return c.json({
-		id: workflow.id,
-		details: await workflow.status(),
-	});
+		if (!file) {
+			return c.json({ error: 'No file provided' }, 400);
+		}
+
+		// 基本安全校验：限制大小与类型
+		if (file.size > MAX_FILE_SIZE_BYTES) {
+			return c.json({ error: `File too large. Max ${MAX_FILE_SIZE_BYTES / (1024 * 1024)} MB allowed.` }, 400);
+		}
+		if (!ALLOWED_VIDEO_TYPES.includes(file.type)) {
+			return c.json({ error: `Unsupported file type ${file.type}` }, 400);
+		}
+
+		const id = crypto.randomUUID();
+		
+		// 上传原始文件到 R2
+		await c.env.SEPARATE_STORAGE.put(id, file);
+
+		// 创建统一处理工作流
+		const workflow = await c.env.SEP_TRANS_PROCESSOR.create({ 
+			params: { 
+				originalFile: id,
+				fileType: file.type,
+				options: DEFAULT_PROCESSING_OPTIONS 
+			}, 
+			id 
+		});
+		
+		return c.json({
+			id: workflow.id,
+			details: await workflow.status(),
+		});
+		
+	} else {
+		// 模式2: 文件路径引用模式（前端已上传文件）
+		try {
+			const { fileKey, fileType, options, userId, taskId } = await c.req.json();
+			
+			if (!fileKey || !fileType) {
+				return c.json({ error: 'fileKey and fileType are required' }, 400);
+			}
+			
+			// 验证文件存在
+			const fileExists = await c.env.SEPARATE_STORAGE.head(fileKey);
+			if (!fileExists) {
+				return c.json({ error: `File not found: ${fileKey}` }, 404);
+			}
+			
+			// 验证文件类型
+			if (!ALLOWED_VIDEO_TYPES.includes(fileType)) {
+				return c.json({ error: `Unsupported file type: ${fileType}` }, 400);
+			}
+			
+			// 合并处理选项
+			const processingOptions = {
+				...DEFAULT_PROCESSING_OPTIONS,
+				...options
+			};
+			
+			// 使用提供的 taskId 或生成新的 ID
+			const workflowId = taskId || crypto.randomUUID();
+			
+			// 创建工作流
+			const workflow = await c.env.SEP_TRANS_PROCESSOR.create({
+				params: {
+					originalFile: fileKey,
+					fileType,
+					options: processingOptions,
+					userId,
+					taskId: workflowId
+				},
+				id: workflowId
+			});
+			
+			return c.json({
+				id: workflow.id,
+				details: await workflow.status()
+			});
+			
+		} catch (error: any) {
+			console.error('Error processing file path request:', error);
+			return c.json({ error: 'Invalid JSON request body' }, 400);
+		}
+	}
 });
 
 // API 文档
@@ -131,10 +187,14 @@ app.get('/api', async (c: Context<{ Bindings: Env }>) => {
 		version: '5.0.0',
 		description: 'WaveShift 音视频处理工作流服务',
 		endpoints: {
-			'POST /process': '上传文件进行统一处理（分离+转录）',
+			'POST /start': '启动文件处理工作流（支持文件上传或路径引用）',
 			'GET /status/{id}': '查询处理状态',
 			'GET /result/{id}': '获取完整结果（视频+音频+转录）',
 			'GET /api': '查看此API文档'
+		},
+		modes: {
+			'File Upload': '使用 multipart/form-data 上传新文件',
+			'File Reference': '使用 JSON 引用已存在的文件路径'
 		},
 		features: [
 			'自动音视频分离',

@@ -1,0 +1,44 @@
+name: Deploy FFmpeg Worker (Docker Required)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'waveshift-ffmpeg-worker/**'
+      - '.github/workflows/deploy-ffmpeg-docker.yml'
+    branches: [main]
+
+jobs:
+  deploy-ffmpeg:
+    runs-on: ubuntu-latest
+    name: Build and Deploy FFmpeg Worker
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './waveshift-ffmpeg-worker/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./waveshift-ffmpeg-worker
+        run: npm ci
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build Container Image
+        working-directory: ./waveshift-ffmpeg-worker
+        run: docker build -t ffmpeg-container .
+        
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: './waveshift-ffmpeg-worker'

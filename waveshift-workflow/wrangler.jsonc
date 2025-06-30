@@ -63,13 +63,13 @@
 	"services": [
 		{
 			"binding": "FFMPEG_SERVICE",
-			"service": "ffmpeg-worker",
+			"service": "waveshift-ffmpeg-worker",
 			"environment": "production",
 			"entrypoint": "FFmpegWorker"
 		},
 		{
 			"binding": "TRANSCRIBE_SERVICE",
-			"service": "transcribe-worker",
+			"service": "waveshift-transcribe-worker",
 			"environment": "production"
 		},
 		{

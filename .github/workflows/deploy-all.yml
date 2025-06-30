@@ -1,8 +1,8 @@
 name: Deploy All WaveShift Services
 
 on:
-  push:
-    branches: [ main, master ]
+  # push:
+  #   branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -11,7 +11,7 @@ jobs:
     name: Deploy FFmpeg Worker
     defaults:
       run:
-        working-directory: ./ffmpeg-worker
+        working-directory: ./waveshift-ffmpeg-worker
     
     steps:
       - name: Checkout
@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: './ffmpeg-worker/package-lock.json'
+          cache-dependency-path: './waveshift-ffmpeg-worker/package-lock.json'
 
       - name: Install dependencies
         run: npm ci
@@ -48,7 +48,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
-          workingDirectory: './ffmpeg-worker'
+          workingDirectory: './waveshift-ffmpeg-worker'
         env:
           CLOUDFLARE_ACCOUNT_ID: "1298fa35ac940c688dc1b6d8f5eead72"
           R2_BUCKET_NAME: "separate-audio-video"
@@ -58,7 +58,7 @@ jobs:
     name: Deploy Transcribe Worker
     defaults:
       run:
-        working-directory: ./transcribe-worker
+        working-directory: ./waveshift-transcribe-worker
     
     steps:
       - name: Checkout
@@ -72,7 +72,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: './transcribe-worker/package-lock.json'
+          cache-dependency-path: './waveshift-transcribe-worker/package-lock.json'
 
       - name: Install dependencies
         run: npm ci
@@ -85,7 +85,7 @@ jobs:
         
       - name: Set Gemini API Key Secret
         run: echo "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
-        working-directory: ./transcribe-worker
+        working-directory: ./waveshift-transcribe-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           
@@ -95,7 +95,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
-          workingDirectory: './transcribe-worker'
+          workingDirectory: './waveshift-transcribe-worker'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WRANGLER_SEND_METRICS: false
