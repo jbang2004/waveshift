@@ -8,7 +8,7 @@ import { verifyAuth } from '@/lib/auth/verify-request';
 
 
 // 获取任务详细信息
-async function getTaskWithDetails(taskId: string, userId: string, db: any) {
+async function getTaskWithDetails(taskId: string, userId: string, db: any, env: any) {
   // 获取任务基本信息
   const [task] = await db.select()
     .from(mediaTasks)
@@ -42,14 +42,31 @@ async function getTaskWithDetails(taskId: string, userId: string, db: any) {
     }
   }
   
+  // 生成视频URL
+  let videoUrl = null;
+  if (task.file_path) {
+    // 使用自定义域名（官方推荐的生产环境方案）
+    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN || 'https://media.waveshift.net';
+    videoUrl = `${customDomain}/${task.file_path}`;
+    
+    console.log('生成自定义域名视频URL:', {
+      taskId: task.id,
+      filePath: task.file_path,
+      customDomain,
+      videoUrl,
+      note: '使用自定义域名访问（官方推荐的生产环境方案）'
+    });
+  }
+  
   return {
     ...task,
+    videoUrl,
     transcription,
   };
 }
 
 // 创建 SSE 响应
-function createSSEResponse(taskId: string, userId: string, db: any) {
+function createSSEResponse(taskId: string, userId: string, db: any, env: any) {
   const encoder = new TextEncoder();
   
   
@@ -59,7 +76,7 @@ function createSSEResponse(taskId: string, userId: string, db: any) {
   // 定期查询状态
   const intervalId = setInterval(async () => {
     try {
-      const task = await getTaskWithDetails(taskId, userId, db);
+      const task = await getTaskWithDetails(taskId, userId, db, env);
       
       if (!task) {
         await writer.write(encoder.encode(
@@ -118,11 +135,11 @@ export async function GET(
     // 检查是否要求 SSE 响应
     const accept = request.headers.get('accept');
     if (accept === 'text/event-stream') {
-      return createSSEResponse(taskId, authResult.user.id, db);
+      return createSSEResponse(taskId, authResult.user.id, db, env);
     }
     
     // 普通状态查询
-    const task = await getTaskWithDetails(taskId, authResult.user.id, db);
+    const task = await getTaskWithDetails(taskId, authResult.user.id, db, env);
     
     if (!task) {
       return Response.json({ error: 'Task not found' }, { status: 404 });

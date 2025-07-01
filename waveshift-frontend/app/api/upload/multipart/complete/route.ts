@@ -107,13 +107,16 @@ export async function POST(request: NextRequest) {
       etag: completeResult.etag
     });
 
-    // 生成公共访问URL
-    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN;
-    const bucketName = env.R2_BUCKET_NAME || 'waveshift-media';
+    // 使用自定义域名生成访问URL（推荐的生产环境方案）
+    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN || `https://media.waveshift.net`;
+    const publicUrl = `${customDomain}/${objectKey}`;
     
-    const publicUrl = customDomain 
-      ? `${customDomain}/${objectKey}`
-      : `https://pub-${bucketName}.r2.dev/${objectKey}`;
+    console.log('生成自定义域名访问URL:', {
+      customDomain,
+      objectKey,
+      publicUrl,
+      note: '使用自定义域名替代pub-xxx.r2.dev（官方推荐的生产环境方案）'
+    });
 
     // 更新任务状态为上传完成
     await db.update(mediaTasks)
