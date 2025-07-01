@@ -21,9 +21,9 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 			const { audioUrl, videoUrl, audioKey } = await step.do("separate-media", async () => {
 				console.log(`步骤1: 开始音视频分离 ${taskId}`);
 				
-				// 定义输出文件键（保持与前端的文件结构一致）
-				const audioOutputKey = `processed/${taskId}-audio.aac`;
-				const videoOutputKey = `processed/${taskId}-silent.mp4`;
+				// 定义输出文件键（按照audio/和video/文件夹结构）
+				const audioOutputKey = `audio/${taskId}-audio.aac`;
+				const videoOutputKey = `video/${taskId}-silent.mp4`;
 				
 				// 调用 ffmpeg-worker (Service Binding)
 				const result = await env.FFMPEG_SERVICE.separate({
@@ -157,10 +157,10 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					console.log(`转录结果已存储到 transcriptionId: ${transcriptionId}`);
 				});
 			
-			// 步骤4: 清理临时文件
+			// 步骤4: 清理临时文件（原始文件保留在videos桶）
 			await step.do("cleanup", async () => {
-				console.log(`步骤4: 清理临时文件 ${originalFile}`);
-				await env.SEPARATE_STORAGE.delete(originalFile);
+				console.log(`步骤4: 清理完成，保留原始文件: ${originalFile}`);
+				// 不删除原始文件，保留在videos桶中供用户下载
 			});
 			
 			// 步骤5: 更新最终状态

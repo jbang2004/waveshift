@@ -136,8 +136,8 @@ app.post('/start', async (c: Context<{ Bindings: Env }>) => {
 				return c.json({ error: 'fileKey and fileType are required' }, 400);
 			}
 			
-			// 验证文件存在
-			const fileExists = await c.env.SEPARATE_STORAGE.head(fileKey);
+			// 验证原始文件存在
+			const fileExists = await c.env.ORIGINAL_STORAGE.head(fileKey);
 			if (!fileExists) {
 				return c.json({ error: `File not found: ${fileKey}` }, 404);
 			}

@@ -18,7 +18,8 @@ interface FFmpegService {
 
 interface Env {
 	// 存储绑定
-	SEPARATE_STORAGE: R2Bucket;
+	ORIGINAL_STORAGE: R2Bucket;     // videos桶 - 原始文件
+	SEPARATE_STORAGE: R2Bucket;     // separate-audio-video桶 - 分离结果
 	CLOUDFLARE_ACCOUNT_ID: string;
 	R2_BUCKET_NAME: string;
 	R2_PUBLIC_DOMAIN: string;

@@ -17,8 +17,8 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 		console.log(`FFmpeg分离请求: 输入=${params.inputKey}, 音频输出=${params.audioOutputKey}, 视频输出=${params.videoOutputKey}`);
 		
 		try {
-			// 1. 从 R2 读取原始文件
-			const originalData = await this.env.STORAGE.get(params.inputKey);
+			// 1. 从 videos桶 读取原始文件
+			const originalData = await this.env.ORIGINAL_STORAGE.get(params.inputKey);
 			if (!originalData) {
 				throw new Error(`原始文件未找到: ${params.inputKey}`);
 			}

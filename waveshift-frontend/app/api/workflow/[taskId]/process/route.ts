@@ -61,7 +61,8 @@ export async function POST(
     }
     
     // 通过 Service Binding 调用 Workflow 服务的 /start 端点（文件路径引用模式）
-    const fileKey = `uploads/${authResult.user.id}/${taskId}/${task.fileName}`;
+    // 使用数据库中存储的正确文件路径（已经过清理）
+    const fileKey = task.uploadUrl;
     
     // 调用 waveshift-workflow 的 /start 端点（JSON 模式）
     const workflowResponse = await env.WORKFLOW_SERVICE.fetch(

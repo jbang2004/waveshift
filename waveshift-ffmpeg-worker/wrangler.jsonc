@@ -35,6 +35,11 @@
   },
   "r2_buckets": [
     {
+      "binding": "ORIGINAL_STORAGE",
+      "bucket_name": "videos",
+      "preview_bucket_name": "videos-preview"
+    },
+    {
       "binding": "STORAGE",
       "bucket_name": "separate-audio-video",
       "preview_bucket_name": "separate-audio-video-preview"
