@@ -58,7 +58,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -92,11 +92,11 @@ jobs:
       - name: Test container functionality
         run: |
           # 拉取刚构建的镜像进行测试
-          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           
           # 运行容器并测试基本功能
           docker run --rm -d --name ffmpeg-test -p 8080:8080 \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           
           # 等待容器启动
           sleep 10
@@ -140,7 +140,7 @@ jobs:
           echo "✅ FFmpeg Worker 部署完成！"
           echo ""
           echo "📋 部署信息："
-          echo "- 容器镜像: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
+          echo "- 容器镜像: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
           echo "- Cloudflare Worker: waveshift-ffmpeg-worker"
           echo "- 构建时间: $(date)"
 
