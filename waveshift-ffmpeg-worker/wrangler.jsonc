@@ -8,13 +8,10 @@
   ],
   "containers": [
     {
+      "name": "waveshift-ffmpeg-container",
       "class_name": "FFmpegContainer",
-      "image": "ghcr.io/jbang2004/waveshift/waveshift-ffmpeg-container:latest",
-      "instance_type": "standard",
-      "autoscaling": {
-        "minimum_instances": 1,
-        "maximum_instances": 3
-      }
+      "image": "./Dockerfile",
+      "max_instances": 3
     }
   ],
   "migrations": [
