@@ -109,12 +109,16 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 										if (data.type === 'start') {
 											metadata = data.metadata;
 										} else if (data.type === 'segment') {
-											// 转换字段名从 content_type 到 contentType
+											// 转换字段名以匹配数据库schema
 											const segment = {
-												...data.segment,
-												contentType: data.segment.content_type
+												sequence: data.segment.sequence,
+												start_ms: data.segment.start_ms || 0,
+												end_ms: data.segment.end_ms || 0,
+												content_type: data.segment.content_type || 'speech',
+												speaker: data.segment.speaker || 'unknown',
+												original_text: data.segment.original_text || '',
+												translated_text: data.segment.translated_text || ''
 											};
-											delete segment.content_type;
 											segments.push(segment);
 										} else if (data.type === 'error') {
 											throw new Error(`转录服务错误: ${data.error}`);

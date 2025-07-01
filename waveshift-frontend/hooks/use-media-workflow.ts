@@ -54,6 +54,8 @@ interface MediaWorkflowActions {
 
 // R2 配置
 const R2_CUSTOM_DOMAIN = process.env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN as string;
+const R2_ENDPOINT = process.env.R2_ENDPOINT as string;
+const R2_BUCKET_NAME = process.env.NEXT_PUBLIC_R2_BUCKET_NAME as string;
 
 export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
   const { user } = useAuth();
@@ -150,8 +152,12 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
           setError(new Error(update.error || 'Task failed'));
           setIsProcessing(false);
           es.close();
-        } else if (update.status === 'separating' || update.status === 'transcribing') {
+        } else if (update.status === 'separating' || update.status === 'transcribing' || update.status === 'processing') {
           setIsProcessing(true);
+        } else if (update.status === 'uploaded') {
+          // 上传完成，等待处理开始
+          setIsUploading(false);
+          setUploadComplete(true);
         }
       } catch (err) {
         console.error('Error parsing SSE message:', err);
@@ -169,34 +175,174 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
   }, [user]);
 
 
-  // 简化的直接上传文件（使用R2 Binding）
-  const uploadFile = async (
+  // 使用Worker分段上传实现官方推荐的上传方案
+  const uploadFileWithWorkerMultipart = async (
     file: File,
+    taskId: string,
     objectName: string,
     onProgress: (progress: number) => void
-  ): Promise<void> => {
+  ): Promise<string> => {
     try {
-      // 创建FormData
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('objectName', objectName);
+      const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB per chunk
+      const MAX_CONCURRENT_UPLOADS = 3; // 最大并发上传数
+      const MAX_RETRIES = 3; // 每个分片最大重试次数
 
-      // 直接上传到R2 Worker API
-      const uploadResponse = await fetch('/api/r2-upload', {
+      // 1. 初始化分段上传
+      const initResponse = await fetch('/api/upload/multipart/create', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId,
+          objectName,
+        }),
       });
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json() as { error?: string };
-        throw new Error(errorData.error || '文件上传失败');
+      if (!initResponse.ok) {
+        const errorData = await initResponse.json() as { error?: string };
+        throw new Error(errorData.error || '初始化分段上传失败');
       }
 
-      // 简单模拟进度
-      onProgress(100);
+      const { uploadId, key: objectKey } = await initResponse.json() as {
+        uploadId: string;
+        key: string;
+      };
+
+      console.log('分段上传初始化成功:', { uploadId, objectKey });
+
+      // 2. 计算分片
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const chunks: { partNumber: number; start: number; end: number; blob: Blob }[] = [];
+      
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const blob = file.slice(start, end);
+        
+        chunks.push({
+          partNumber: i + 1,
+          start,
+          end,
+          blob
+        });
+      }
+
+      console.log(`文件分片完成: ${totalChunks} 个分片，每片约 ${(CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB`);
+
+      // 3. 分片上传状态跟踪
+      const uploadedParts: { partNumber: number; etag: string }[] = [];
+      const failedParts: number[] = [];
+      let completedChunks = 0;
+
+      // 4. 分片上传函数（支持重试）
+      const uploadChunk = async (chunk: typeof chunks[0], retryCount = 0): Promise<void> => {
+        try {
+          const response = await fetch('/api/upload/multipart/part', {
+            method: 'PUT',
+            headers: {
+              'x-upload-id': uploadId,
+              'x-part-number': chunk.partNumber.toString(),
+              'x-object-key': objectKey,
+              'x-task-id': taskId,
+              'Content-Type': 'application/octet-stream',
+            },
+            body: chunk.blob,
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json() as { error?: string };
+            throw new Error(errorData.error || `分片 ${chunk.partNumber} 上传失败`);
+          }
+
+          const result = await response.json() as { etag: string; partNumber: number };
+          
+          // 记录成功上传的分片
+          uploadedParts.push({
+            partNumber: chunk.partNumber,
+            etag: result.etag
+          });
+
+          completedChunks++;
+          const progress = Math.round((completedChunks / totalChunks) * 100);
+          onProgress(progress);
+
+          console.log(`分片 ${chunk.partNumber}/${totalChunks} 上传成功 (${progress}%)`);
+
+        } catch (error) {
+          console.error(`分片 ${chunk.partNumber} 上传失败 (尝试 ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+          
+          if (retryCount < MAX_RETRIES) {
+            // 重试
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // 递增延迟
+            return uploadChunk(chunk, retryCount + 1);
+          } else {
+            // 重试次数耗尽
+            failedParts.push(chunk.partNumber);
+            throw error;
+          }
+        }
+      };
+
+      // 5. 并发上传分片
+      const uploadPromises: Promise<void>[] = [];
+      let currentIndex = 0;
+
+      const processNextChunk = async (): Promise<void> => {
+        if (currentIndex >= chunks.length) return;
+        
+        const chunkIndex = currentIndex++;
+        const chunk = chunks[chunkIndex];
+        
+        await uploadChunk(chunk);
+        
+        // 继续处理下一个分片
+        return processNextChunk();
+      };
+
+      // 启动并发上传
+      for (let i = 0; i < Math.min(MAX_CONCURRENT_UPLOADS, chunks.length); i++) {
+        uploadPromises.push(processNextChunk());
+      }
+
+      // 等待所有分片上传完成
+      await Promise.all(uploadPromises);
+
+      // 检查是否有失败的分片
+      if (failedParts.length > 0) {
+        throw new Error(`${failedParts.length} 个分片上传失败: ${failedParts.join(', ')}`);
+      }
+
+      console.log(`所有分片上传完成，开始合并...`);
+
+      // 6. 完成分段上传
+      const sortedParts = uploadedParts.sort((a, b) => a.partNumber - b.partNumber);
+      
+      const completeResponse = await fetch('/api/upload/multipart/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId,
+          uploadId,
+          objectKey,
+          parts: sortedParts,
+        }),
+      });
+
+      if (!completeResponse.ok) {
+        const errorData = await completeResponse.json() as { error?: string };
+        throw new Error(errorData.error || '完成分段上传失败');
+      }
+
+      const { publicUrl } = await completeResponse.json() as { publicUrl: string };
+      
+      console.log('分段上传完全成功:', { publicUrl });
+      return publicUrl;
       
     } catch (error) {
-      console.error('文件上传失败:', error);
+      console.error('Worker分段上传失败:', error);
       throw error;
     }
   };
@@ -240,21 +386,29 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
       setTaskId(newTaskId);
       setProgress(10);
 
-      // 2. 上传文件
+      // 2. 使用预签名URL直接上传文件到R2
       setIsCreating(false);
       setIsUploading(true);
-      await uploadFile(file, objectName, setUploadProgress);
+      
+      const publicUrl = await uploadFileWithWorkerMultipart(file, newTaskId, objectName, setUploadProgress);
+      
       setIsUploading(false);
       setUploadComplete(true);
+      
+      // 3. 数据库状态已在分段上传完成API中更新，无需额外调用
+      
       setProgress(30);
 
-      // 3. 生成公开 URL
-      const publicUrl = `${R2_CUSTOM_DOMAIN}/${objectName}`;
+      // 4. 设置视频预览URL
+      console.log('Direct upload successful, public URL:', publicUrl);
       setVideoPreviewUrl(publicUrl);
 
       // 4. 触发工作流处理
       setIsProcessing(true);
       setProcessingError(null);
+
+      // 短暂等待确保上传状态已更新
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const processResponse = await fetch(`/api/workflow/${newTaskId}/process`, {
         method: 'POST',
@@ -269,6 +423,7 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
 
       if (!processResponse.ok) {
         const errorData = await processResponse.json() as { error?: string };
+        console.error('Process API error:', errorData);
         throw new Error(errorData.error || 'Failed to start processing');
       }
 

@@ -165,31 +165,40 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
               </Button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span>
-                  {isCreating ? '创建任务' :
-                   isUploading ? '上传文件' :
-                   isProcessing ? '处理中' : '任务进度'}
+                <span className="font-medium">
+                  {isCreating ? '📋 创建任务' :
+                   isUploading ? '📤 上传文件' :
+                   isProcessing ? '⚙️ 处理中' : '📊 任务进度'}
                 </span>
-                <span>
+                <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
                   {isUploading ? `${uploadProgress}%` : `${progress}%`}
                 </span>
               </div>
+              
               <Progress 
                 value={isUploading ? uploadProgress : progress} 
-                className="w-full" 
+                className="w-full h-2" 
               />
-              <p className="text-sm text-gray-600">
-                状态: {
-                  isCreating ? '创建任务中' :
-                  isUploading ? '上传文件中' :
-                  isProcessing ? '处理中' :
-                  task?.status === 'completed' ? '已完成' :
-                  task?.status === 'failed' ? '失败' :
-                  task?.status || '等待中'
-                }
-              </p>
+              
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>
+                  状态: {
+                    isCreating ? '创建任务中...' :
+                    isUploading ? `上传中... (${uploadProgress}%)` :
+                    isProcessing ? '处理中...' :
+                    task?.status === 'completed' ? '✅ 已完成' :
+                    task?.status === 'failed' ? '❌ 失败' :
+                    task?.status || '等待中'
+                  }
+                </span>
+                {isUploading && uploadProgress > 0 && uploadProgress < 100 && (
+                  <span className="text-blue-600">
+                    上传速度: 计算中...
+                  </span>
+                )}
+              </div>
             </div>
 
             {showResults && (

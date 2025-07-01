@@ -8,7 +8,7 @@ export const mediaTasks = sqliteTable('media_tasks', {
   user_id: text('user_id').notNull().references(() => users.id),
   
   // 核心状态
-  status: text('status').notNull(), // 'created', 'uploading', 'processing', 'completed', 'failed'
+  status: text('status').notNull(), // 'created', 'uploading', 'uploaded', 'processing', 'separating', 'transcribing', 'completed', 'failed'
   progress: integer('progress').default(0), // 0-100
   
   // 文件信息（使用统一路径）
@@ -28,6 +28,9 @@ export const mediaTasks = sqliteTable('media_tasks', {
   // 工作流管理
   workflow_id: text('workflow_id'),
   workflow_status: text('workflow_status'),
+  
+  // 转录关联
+  transcription_id: text('transcription_id'),
   
   // 错误处理
   error_message: text('error_message'),

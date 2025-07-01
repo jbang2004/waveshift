@@ -53,9 +53,12 @@ export async function POST(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
     
-    if (task.status !== 'pending_upload' && task.status !== 'uploading') {
+    // 允许的状态：创建完成、上传中、上传完成
+    const allowedStatuses = ['created', 'uploading', 'uploaded', 'pending_upload'];
+    
+    if (!allowedStatuses.includes(task.status)) {
       return Response.json(
-        { error: 'Task is already being processed' },
+        { error: `Task cannot be processed. Current status: ${task.status}. Allowed: ${allowedStatuses.join(', ')}` },
         { status: 400 }
       );
     }

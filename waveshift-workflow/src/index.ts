@@ -17,46 +17,50 @@ const app = new Hono<{ Bindings: Env }>();
 
 // 查看处理结果（包含音视频和转录结果）
 app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
-	const id = c.req.param('id');
+	const taskId = c.req.param('id');
 	try {
-		const videoUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/processed/${id}-silent.mp4`;
-		const audioUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/processed/${id}-audio.aac`;
+		// 从数据库获取任务信息，包含用户ID和文件路径
+		const taskResult = await c.env.DB.prepare(
+			"SELECT user_id, audio_path, video_path, transcription_id FROM media_tasks WHERE id = ?"
+		).bind(taskId).first();
 		
-		// 检查文件是否存在
-		const videoExists = await c.env.SEPARATE_STORAGE.head(`processed/${id}-silent.mp4`);
-		const audioExists = await c.env.SEPARATE_STORAGE.head(`processed/${id}-audio.aac`);
+		if (!taskResult) {
+			return c.json({ error: 'Task not found' }, 404);
+		}
 		
-		if (!videoExists || !audioExists) {
+		// 根据数据库中的路径生成完整URL
+		const videoUrl = taskResult.video_path ? `https://${c.env.R2_PUBLIC_DOMAIN}/${taskResult.video_path}` : null;
+		const audioUrl = taskResult.audio_path ? `https://${c.env.R2_PUBLIC_DOMAIN}/${taskResult.audio_path}` : null;
+		
+		// 检查文件是否存在（使用数据库中的路径）
+		const videoExists = taskResult.video_path ? await c.env.MEDIA_STORAGE.head(taskResult.video_path) : null;
+		const audioExists = taskResult.audio_path ? await c.env.MEDIA_STORAGE.head(taskResult.audio_path) : null;
+		
+		if ((!videoExists && taskResult.video_path) || (!audioExists && taskResult.audio_path)) {
 			return c.json({ error: 'Files not found' }, 404);
 		}
 		
 		// 获取转录结果（使用前端的表结构）
 		let transcription = null;
 		try {
-			// 获取媒体任务信息
-			const taskResult = await c.env.DB.prepare(
-				"SELECT * FROM media_tasks WHERE id = ?"
-			).bind(id).first();
-			
-			if (taskResult && taskResult.transcriptionId) {
+			if (taskResult.transcription_id) {
 				// 获取转录任务信息
 				const transcriptionResult = await c.env.DB.prepare(
 					"SELECT * FROM transcriptions WHERE id = ?"
-				).bind(taskResult.transcriptionId).first();
+				).bind(taskResult.transcription_id).first();
 				
 				if (transcriptionResult) {
 					// 获取转录片段
 					const segmentsResult = await c.env.DB.prepare(
-						"SELECT sequence, start, end, contentType, speaker, original, translation FROM transcription_segments WHERE transcriptionId = ? ORDER BY sequence ASC"
-					).bind(taskResult.transcriptionId).all();
+						"SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text FROM transcription_segments WHERE transcription_id = ? ORDER BY sequence ASC"
+					).bind(taskResult.transcription_id).all();
 					
 					transcription = {
-						task_id: id,
-						targetLanguage: transcriptionResult.targetLanguage,
+						task_id: taskId,
+						target_language: transcriptionResult.target_language,
 						style: transcriptionResult.style,
-						status: taskResult.status,
-						segments: segmentsResult.results || [],
-						totalSegments: segmentsResult.results?.length || 0
+						total_segments: transcriptionResult.total_segments,
+						segments: segmentsResult.results || []
 					};
 				}
 			}
@@ -110,7 +114,7 @@ app.post('/start', async (c: Context<{ Bindings: Env }>) => {
 		const id = crypto.randomUUID();
 		
 		// 上传原始文件到 R2
-		await c.env.SEPARATE_STORAGE.put(id, file);
+		await c.env.MEDIA_STORAGE.put(id, file);
 
 		// 创建统一处理工作流
 		const workflow = await c.env.SEP_TRANS_PROCESSOR.create({ 
@@ -137,7 +141,7 @@ app.post('/start', async (c: Context<{ Bindings: Env }>) => {
 			}
 			
 			// 验证原始文件存在
-			const fileExists = await c.env.ORIGINAL_STORAGE.head(fileKey);
+			const fileExists = await c.env.MEDIA_STORAGE.head(fileKey);
 			if (!fileExists) {
 				return c.json({ error: `File not found: ${fileKey}` }, 404);
 			}

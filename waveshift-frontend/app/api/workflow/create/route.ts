@@ -37,17 +37,8 @@ function generateObjectPath(userId: string, taskId: string, fileName: string): s
   return `users/${userId}/${taskId}/original.${ext}`;
 }
 
-// 初始化分块上传 - 返回前端所需的上传信息
-async function initiateMultipartUpload(objectName: string, env: any): Promise<{ uploadId: string; uploadUrl: string }> {
-  // 生成一个临时的 uploadId 供前端使用
-  // 实际的 R2 uploadId 会在前端调用 /api/r2-presigned-url 时生成
-  const tempUploadId = crypto.randomUUID();
-  
-  return {
-    uploadId: tempUploadId,
-    uploadUrl: '/api/r2-presigned-url' // 前端会使用这个端点进行分块上传
-  };
-}
+// 注意：现在使用Worker分段上传，不需要预先初始化上传
+// 前端将直接调用 /api/upload/multipart/create 来开始上传
 
 export async function POST(request: NextRequest) {
   try {
@@ -101,8 +92,7 @@ export async function POST(request: NextRequest) {
     const taskId = crypto.randomUUID();
     const objectPath = generateObjectPath(authResult.user.id, taskId, fileName);
     
-    // 初始化分块上传
-    const { uploadId, uploadUrl } = await initiateMultipartUpload(objectPath, env);
+    // 注意：不再预先初始化分块上传，前端将直接调用 /api/upload/multipart/create
     
     // 创建媒体任务记录
     const now = Date.now();
@@ -123,12 +113,10 @@ export async function POST(request: NextRequest) {
     // 插入任务到数据库
     await db.insert(mediaTasks).values(newTask);
     
-    // 返回成功响应，包含上传所需信息
+    // 返回成功响应，包含任务信息
     return Response.json({
       success: true,
       taskId,
-      uploadId,
-      uploadUrl, // 前端分块上传端点
       objectPath, // R2 对象路径
       objectName: objectPath, // 前端需要的字段名
       message: 'Workflow created successfully. Ready for file upload.',

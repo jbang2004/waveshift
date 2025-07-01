@@ -27,23 +27,21 @@ export interface TranscriptionMetadata {
 export async function updateMediaTaskStatus(
   env: Env,
   taskId: string,
-  status: 'pending_upload' | 'uploading' | 'separating' | 'transcribing' | 'completed' | 'failed',
+  status: 'created' | 'uploading' | 'uploaded' | 'separating' | 'transcribing' | 'completed' | 'failed',
   progress?: number
 ): Promise<void> {
-  const now = new Date().getTime();
-  
   if (progress !== undefined) {
     await env.DB.prepare(`
       UPDATE media_tasks 
-      SET status = ?, progress = ?, updatedAt = ? 
+      SET status = ?, progress = ?
       WHERE id = ?
-    `).bind(status, progress, now, taskId).run();
+    `).bind(status, progress, taskId).run();
   } else {
     await env.DB.prepare(`
       UPDATE media_tasks 
-      SET status = ?, updatedAt = ? 
+      SET status = ?
       WHERE id = ?
-    `).bind(status, now, taskId).run();
+    `).bind(status, taskId).run();
   }
 }
 
@@ -56,13 +54,11 @@ export async function updateMediaTaskUrls(
   audioUrl: string,
   videoUrl: string
 ): Promise<void> {
-  const now = new Date().getTime();
-  
   await env.DB.prepare(`
     UPDATE media_tasks 
-    SET audioUrl = ?, videoUrl = ?, updatedAt = ? 
+    SET audio_path = ?, video_path = ?
     WHERE id = ?
-  `).bind(audioUrl, videoUrl, now, taskId).run();
+  `).bind(audioUrl, videoUrl, taskId).run();
 }
 
 /**
@@ -76,32 +72,28 @@ export async function createTranscription(
   metadata?: Partial<TranscriptionMetadata>
 ): Promise<string> {
   const transcriptionId = crypto.randomUUID();
-  const now = new Date().getTime();
+  const now = Date.now();
   
   await env.DB.prepare(`
     INSERT INTO transcriptions 
-    (id, taskId, targetLanguage, style, fileName, fileSize, mimeType, totalSegments, duration, startTime, createdAt) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, task_id, target_language, style, total_segments, duration_ms, created_at) 
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(
     transcriptionId,
     taskId,
     targetLanguage,
     style,
-    metadata?.fileName || null,
-    metadata?.fileSize || null,
-    metadata?.mimeType || null,
     metadata?.totalSegments || 0,
     metadata?.duration || null,
-    metadata?.startTime || new Date().toISOString(),
     now
   ).run();
   
-  // 更新 media_tasks 表的 transcriptionId
+  // 更新 media_tasks 表的 transcription_id
   await env.DB.prepare(`
     UPDATE media_tasks 
-    SET transcriptionId = ?, updatedAt = ? 
+    SET transcription_id = ?
     WHERE id = ?
-  `).bind(transcriptionId, now, taskId).run();
+  `).bind(transcriptionId, taskId).run();
   
   return transcriptionId;
 }
@@ -113,36 +105,38 @@ export async function storeTranscriptionResult(
   env: Env,
   transcriptionId: string,
   transcriptionData: {
-    segments: TranscriptionSegment[];
+    segments: any[];
     metadata?: TranscriptionMetadata;
     totalSegments: number;
   }
 ): Promise<void> {
-  const now = new Date().getTime();
+  const now = Date.now();
   
-  // 更新转录任务的总片段数
+  // 更新转录任务的总片段数和处理时间
+  const transcription = await env.DB.prepare(`SELECT created_at FROM transcriptions WHERE id = ?`).bind(transcriptionId).first();
+  const processingTime = transcription ? now - transcription.created_at : 0;
+  
   await env.DB.prepare(`
     UPDATE transcriptions 
-    SET totalSegments = ?, endTime = ? 
+    SET total_segments = ?, processing_time_ms = ?
     WHERE id = ?
-  `).bind(transcriptionData.totalSegments, new Date().toISOString(), transcriptionId).run();
+  `).bind(transcriptionData.totalSegments, processingTime, transcriptionId).run();
   
   // 批量插入转录片段
   for (const segment of transcriptionData.segments) {
     await env.DB.prepare(`
       INSERT INTO transcription_segments 
-      (transcriptionId, sequence, start, end, contentType, speaker, original, translation, createdAt) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       transcriptionId,
       segment.sequence,
-      segment.start,
-      segment.end,
-      segment.contentType,
+      parseInt(segment.start_ms) || 0,
+      parseInt(segment.end_ms) || 0,
+      segment.content_type || 'speech',
       segment.speaker,
-      segment.original,
-      segment.translation,
-      now
+      segment.original_text,
+      segment.translated_text
     ).run();
   }
 }
@@ -173,31 +167,31 @@ export async function getTranscriptionResult(
     SELECT * FROM media_tasks WHERE id = ?
   `).bind(taskId).first();
   
-  if (!task || !task.transcriptionId) return null;
+  if (!task || !task.transcription_id) return null;
   
   // 获取转录任务信息
   const transcription = await env.DB.prepare(`
     SELECT * FROM transcriptions WHERE id = ?
-  `).bind(task.transcriptionId).first();
+  `).bind(task.transcription_id).first();
   
   if (!transcription) return null;
   
   // 获取所有转录片段
   const segmentsResult = await env.DB.prepare(`
-    SELECT sequence, start, end, contentType, speaker, original, translation
+    SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text
     FROM transcription_segments 
-    WHERE transcriptionId = ? 
+    WHERE transcription_id = ? 
     ORDER BY sequence ASC
-  `).bind(task.transcriptionId).all();
+  `).bind(task.transcription_id).all();
   
   const segments = (segmentsResult.results || []).map((row: any) => ({
     sequence: row.sequence as number,
-    start: row.start as string,
-    end: row.end as string,
-    contentType: row.contentType as 'speech' | 'singing' | 'non_speech_human_vocalizations' | 'non_human_sounds',
+    start: String(row.start_ms),
+    end: String(row.end_ms),
+    contentType: row.content_type as 'speech' | 'singing' | 'non_speech_human_vocalizations' | 'non_human_sounds',
     speaker: row.speaker as string,
-    original: row.original as string,
-    translation: row.translation as string
+    original: row.original_text as string,
+    translation: row.translated_text as string
   }));
   
   return { task, transcription, segments };
@@ -211,15 +205,15 @@ export async function completeMediaTask(
   taskId: string,
   success: boolean = true
 ): Promise<void> {
-  const now = new Date().getTime();
+  const now = Date.now();
   const status = success ? 'completed' : 'failed';
   const progress = success ? 100 : 0;
   
   await env.DB.prepare(`
     UPDATE media_tasks 
-    SET status = ?, progress = ?, completedAt = ?, updatedAt = ? 
+    SET status = ?, progress = ?, completed_at = ?
     WHERE id = ?
-  `).bind(status, progress, now, now, taskId).run();
+  `).bind(status, progress, now, taskId).run();
 }
 
 /**
@@ -231,11 +225,9 @@ export async function setMediaTaskError(
   error: string,
   errorDetails?: string
 ): Promise<void> {
-  const now = new Date().getTime();
-  
   await env.DB.prepare(`
     UPDATE media_tasks 
-    SET status = 'failed', error = ?, errorDetails = ?, updatedAt = ? 
+    SET status = 'failed', error_message = ?, error_details = ?
     WHERE id = ?
-  `).bind(error, errorDetails || null, now, taskId).run();
+  `).bind(error, errorDetails || null, taskId).run();
 }
