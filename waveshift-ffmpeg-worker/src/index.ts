@@ -17,8 +17,8 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 		console.log(`FFmpeg分离请求: 输入=${params.inputKey}, 音频输出=${params.audioOutputKey}, 视频输出=${params.videoOutputKey}`);
 		
 		try {
-			// 1. 从 videos桶 读取原始文件
-			const originalData = await this.env.ORIGINAL_STORAGE.get(params.inputKey);
+			// 1. 从统一存储桶读取原始文件
+			const originalData = await this.env.MEDIA_STORAGE.get(params.inputKey);
 			if (!originalData) {
 				throw new Error(`原始文件未找到: ${params.inputKey}`);
 			}
@@ -63,15 +63,15 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 			
 			console.log(`FFMPEG处理完成 - 视频大小: ${videoFile.size}, 音频大小: ${audioFile.size}`);
 			
-			// 5. 存储到 R2
+			// 5. 存储到统一存储桶
 			await Promise.all([
-				this.env.STORAGE.put(params.audioOutputKey, audioFile, {
+				this.env.MEDIA_STORAGE.put(params.audioOutputKey, audioFile, {
 					httpMetadata: {
 						contentType: 'audio/aac',
 						cacheControl: 'public, max-age=31536000, immutable'
 					}
 				}),
-				this.env.STORAGE.put(params.videoOutputKey, videoFile, {
+				this.env.MEDIA_STORAGE.put(params.videoOutputKey, videoFile, {
 					httpMetadata: {
 						contentType: 'video/mp4',
 						cacheControl: 'public, max-age=31536000, immutable'

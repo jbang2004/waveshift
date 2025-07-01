@@ -1,7 +1,6 @@
 export interface Env {
-	// 存储绑定
-	ORIGINAL_STORAGE: R2Bucket;  // videos桶 - 原始文件
-	STORAGE: R2Bucket;           // separate-audio-video桶 - 分离结果
+	// 存储绑定 - 统一存储桶
+	MEDIA_STORAGE: R2Bucket;     // waveshift-media桶 - 所有媒体文件
 	CLOUDFLARE_ACCOUNT_ID: string;
 	R2_BUCKET_NAME: string;
 	

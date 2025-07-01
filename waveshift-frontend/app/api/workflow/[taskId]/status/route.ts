@@ -14,7 +14,7 @@ async function getTaskWithDetails(taskId: string, userId: string, db: any) {
     .from(mediaTasks)
     .where(and(
       eq(mediaTasks.id, taskId),
-      eq(mediaTasks.userId, userId)
+      eq(mediaTasks.user_id, userId)
     ))
     .limit(1);
     
@@ -23,16 +23,16 @@ async function getTaskWithDetails(taskId: string, userId: string, db: any) {
   let transcription = null;
   
   // 如果任务完成，获取转录结果
-  if (task.status === 'completed' && task.transcriptionId) {
+  if (task.status === 'completed' && task.transcription_id) {
     const [transcriptionData] = await db.select()
       .from(transcriptions)
-      .where(eq(transcriptions.id, task.transcriptionId))
+      .where(eq(transcriptions.id, task.transcription_id))
       .limit(1);
       
     if (transcriptionData) {
       const segments = await db.select()
         .from(transcriptionSegments)
-        .where(eq(transcriptionSegments.transcriptionId, task.transcriptionId))
+        .where(eq(transcriptionSegments.transcription_id, task.transcription_id))
         .orderBy(transcriptionSegments.sequence);
         
       transcription = {

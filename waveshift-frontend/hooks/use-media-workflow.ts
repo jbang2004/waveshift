@@ -52,18 +52,8 @@ interface MediaWorkflowActions {
   resetWorkflow: () => void;
 }
 
-// 分块上传配置
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
-const MAX_CONCURRENT_UPLOADS = 3;
-const RETRY_ATTEMPTS = 3;
+// R2 配置
 const R2_CUSTOM_DOMAIN = process.env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN as string;
-const MULTIPART_API_PATH = '/api/r2-presigned-url';
-
-// 上传分块接口
-interface UploadPart {
-  partNumber: number;
-  etag: string;
-}
 
 export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
   const { user } = useAuth();
@@ -178,163 +168,35 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
     setEventSource(es);
   }, [user]);
 
-  // 上传单个分块
-  const uploadChunk = async (
-    chunk: Blob,
-    partNumber: number,
-    uploadId: string,
-    objectName: string,
-    retryCount = 0
-  ): Promise<UploadPart> => {
-    try {
-      // 获取分块上传URL
-      const urlResponse = await fetch(MULTIPART_API_PATH, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'getPartUrl',
-          objectName,
-          uploadId,
-          partNumber
-        }),
-      });
 
-      if (!urlResponse.ok) {
-        throw new Error(`获取分块上传URL失败: ${urlResponse.statusText}`);
-      }
-
-      const { partUrl } = await urlResponse.json() as { partUrl: string };
-
-      // 上传分块
-      const uploadResponse = await fetch(partUrl, {
-        method: 'PUT',
-        body: chunk,
-        headers: {
-          'Content-Type': 'application/octet-stream'
-        }
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(`分块上传失败: ${uploadResponse.statusText}`);
-      }
-
-      const etag = uploadResponse.headers.get('ETag');
-      if (!etag) {
-        throw new Error('上传响应中缺少ETag');
-      }
-
-      return {
-        partNumber,
-        etag: etag.replace(/^"(.+)"$/, '$1') // 移除首尾引号
-      };
-    } catch (error) {
-      if (retryCount < RETRY_ATTEMPTS) {
-        console.warn(`分块 ${partNumber} 上传失败，正在重试 ${retryCount + 1}/${RETRY_ATTEMPTS}`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount))); // 指数退避
-        return uploadChunk(chunk, partNumber, uploadId, objectName, retryCount + 1);
-      }
-      throw error;
-    }
-  };
-
-  // 分块上传文件
-  const uploadFileInChunks = async (
+  // 简化的直接上传文件（使用R2 Binding）
+  const uploadFile = async (
     file: File,
     objectName: string,
     onProgress: (progress: number) => void
   ): Promise<void> => {
-    let uploadId = '';
-
     try {
-      // 1. 初始化分块上传
-      const initiateResponse = await fetch(MULTIPART_API_PATH, {
+      // 创建FormData
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('objectName', objectName);
+
+      // 直接上传到R2 Worker API
+      const uploadResponse = await fetch('/api/r2-upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'initiate',
-          objectName
-        }),
+        body: formData,
       });
 
-      if (!initiateResponse.ok) {
-        throw new Error('初始化分块上传失败');
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json() as { error?: string };
+        throw new Error(errorData.error || '文件上传失败');
       }
 
-      const { uploadId: newUploadId } = await initiateResponse.json() as { uploadId: string };
-      uploadId = newUploadId;
-
-      // 2. 分割文件为块
-      const chunks: Blob[] = [];
-      for (let start = 0; start < file.size; start += CHUNK_SIZE) {
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        chunks.push(file.slice(start, end));
-      }
-
-      // 3. 并发上传分块
-      const uploadedParts: UploadPart[] = new Array(chunks.length);
-      let completedChunks = 0;
-
-      // 使用 Promise 控制并发
-      const uploadChunkWithIndex = async (chunkIndex: number) => {
-        const chunk = chunks[chunkIndex];
-        const partNumber = chunkIndex + 1;
-
-        try {
-          const uploadedPart = await uploadChunk(chunk, partNumber, uploadId, objectName);
-          uploadedParts[chunkIndex] = uploadedPart;
-          completedChunks++;
-          
-          // 更新进度
-          const progress = Math.round((completedChunks / chunks.length) * 100);
-          onProgress(progress);
-        } catch (error) {
-          console.error(`分块 ${partNumber} 上传失败:`, error);
-          throw error;
-        }
-      };
-
-      // 分批并发上传
-      for (let i = 0; i < chunks.length; i += MAX_CONCURRENT_UPLOADS) {
-        const batch = [];
-        for (let j = i; j < Math.min(i + MAX_CONCURRENT_UPLOADS, chunks.length); j++) {
-          batch.push(uploadChunkWithIndex(j));
-        }
-        await Promise.all(batch);
-      }
-
-      // 4. 完成分块上传
-      const completeResponse = await fetch(MULTIPART_API_PATH, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'complete',
-          objectName,
-          uploadId,
-          parts: uploadedParts.sort((a, b) => a.partNumber - b.partNumber)
-        }),
-      });
-
-      if (!completeResponse.ok) {
-        throw new Error('完成分块上传失败');
-      }
-
+      // 简单模拟进度
+      onProgress(100);
+      
     } catch (error) {
-      // 上传失败时中止分块上传
-      if (uploadId) {
-        try {
-          await fetch(MULTIPART_API_PATH, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'abort',
-              objectName,
-              uploadId
-            }),
-          });
-        } catch (abortError) {
-          console.error('中止分块上传失败:', abortError);
-        }
-      }
+      console.error('文件上传失败:', error);
       throw error;
     }
   };
@@ -363,6 +225,8 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type,
+          targetLanguage: options.targetLanguage || 'chinese',
+          style: options.style || 'normal',
         }),
       });
 
@@ -379,7 +243,7 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
       // 2. 上传文件
       setIsCreating(false);
       setIsUploading(true);
-      await uploadFileInChunks(file, objectName, setUploadProgress);
+      await uploadFile(file, objectName, setUploadProgress);
       setIsUploading(false);
       setUploadComplete(true);
       setProgress(30);

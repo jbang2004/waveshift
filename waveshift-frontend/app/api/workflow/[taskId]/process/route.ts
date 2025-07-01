@@ -45,7 +45,7 @@ export async function POST(
       .from(mediaTasks)
       .where(and(
         eq(mediaTasks.id, taskId),
-        eq(mediaTasks.userId, authResult.user.id)
+        eq(mediaTasks.user_id, authResult.user.id)
       ))
       .limit(1);
       
@@ -62,7 +62,7 @@ export async function POST(
     
     // 通过 Service Binding 调用 Workflow 服务的 /start 端点（文件路径引用模式）
     // 使用数据库中存储的正确文件路径（已经过清理）
-    const fileKey = task.uploadUrl;
+    const fileKey = task.file_path;
     
     // 调用 waveshift-workflow 的 /start 端点（JSON 模式）
     const workflowResponse = await env.WORKFLOW_SERVICE.fetch(
@@ -73,7 +73,7 @@ export async function POST(
         },
         body: JSON.stringify({
           fileKey,
-          fileType: task.mimeType || getMimeType(task.fileName || ''),
+          fileType: task.file_type || getMimeType(task.file_name || ''),
           options: {
             targetLanguage,
             style,
@@ -96,10 +96,9 @@ export async function POST(
     await db.update(mediaTasks)
       .set({
         status: 'separating', // 开始音视频分离
-        workflowId: workflow.id,
-        workflowStatus: 'running',
-        startedAt: Date.now(),
-        updatedAt: Date.now(),
+        workflow_id: workflow.id,
+        workflow_status: 'running',
+        started_at: Date.now(),
       })
       .where(eq(mediaTasks.id, taskId));
       

@@ -12,6 +12,7 @@ import { z } from 'zod';
 // Cloudflare 环境接口
 export interface CloudflareEnv {
   DB: D1Database;
+  MEDIA_STORAGE?: R2Bucket;  // 统一媒体存储桶
   JWT_SECRET?: string;
   AUTH_SECRET?: string;
   R2_ACCESS_KEY_ID?: string;

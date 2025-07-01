@@ -21,9 +21,13 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 			const { audioUrl, videoUrl, audioKey } = await step.do("separate-media", async () => {
 				console.log(`步骤1: 开始音视频分离 ${taskId}`);
 				
-				// 定义输出文件键（按照audio/和video/文件夹结构）
-				const audioOutputKey = `audio/${taskId}-audio.aac`;
-				const videoOutputKey = `video/${taskId}-silent.mp4`;
+				// 从原始文件路径中提取userId（格式: users/{userId}/{taskId}/original.{ext}）
+				const pathParts = originalFile.split('/');
+				const userId = pathParts[1];
+				
+				// 定义输出文件路径（保存在同一目录下）
+				const audioOutputKey = `users/${userId}/${taskId}/audio.aac`;
+				const videoOutputKey = `users/${userId}/${taskId}/video.mp4`;
 				
 				// 调用 ffmpeg-worker (Service Binding)
 				const result = await env.FFMPEG_SERVICE.separate({
@@ -57,7 +61,7 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					console.log(`步骤2: 开始音频转录，语言: ${options.targetLanguage}`);
 					
 					// 直接从 R2 读取音频对象，避免公网往返
-					const audioObject = await env.SEPARATE_STORAGE.get(audioKey);
+					const audioObject = await env.MEDIA_STORAGE.get(audioKey);
 					if (!audioObject) {
 						throw new Error(`R2 音频对象未找到: ${audioKey}`);
 					}

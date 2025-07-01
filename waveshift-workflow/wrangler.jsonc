@@ -16,20 +16,15 @@
 	},
 	"r2_buckets": [
 		{
-			"binding": "ORIGINAL_STORAGE",
-			"bucket_name": "videos",
-			"preview_bucket_name": "videos-preview"
-		},
-		{
-			"binding": "SEPARATE_STORAGE",
-			"bucket_name": "separate-audio-video",
-			"preview_bucket_name": "separate-audio-video-preview"
+			"binding": "MEDIA_STORAGE",
+			"bucket_name": "waveshift-media",
+			"preview_bucket_name": "waveshift-media-preview"
 		}
 	],
 	"vars": {
 		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
-		"R2_BUCKET_NAME": "videos",
-		"R2_PUBLIC_DOMAIN": "r2.waveshift.net",
+		"R2_BUCKET_NAME": "waveshift-media",
+		"R2_PUBLIC_DOMAIN": "media.waveshift.net",
 		"WORKFLOW_CALLBACK_SECRET": "waveshift-callback-secret-2025"
 	},
 	/**

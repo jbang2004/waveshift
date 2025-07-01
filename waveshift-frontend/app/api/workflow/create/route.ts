@@ -29,11 +29,12 @@ const supportedMimeTypes = [
   'audio/ogg',
 ];
 
-// 生成安全的对象名称
-function generateObjectName(userId: string, taskId: string, fileName: string): string {
-  // 清理文件名，移除危险字符
-  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  return `uploads/${userId}/${taskId}/${sanitizedFileName}`;
+// 生成统一的对象路径
+function generateObjectPath(userId: string, taskId: string, fileName: string): string {
+  // 提取文件扩展名
+  const ext = fileName.split('.').pop()?.toLowerCase() || 'mp4';
+  // 使用统一的命名规则
+  return `users/${userId}/${taskId}/original.${ext}`;
 }
 
 // 初始化分块上传 - 返回前端所需的上传信息
@@ -96,27 +97,27 @@ export async function POST(request: NextRequest) {
     // 初始化数据库
     const db = drizzle(env.DB);
     
-    // 生成任务 ID 和对象名称
+    // 生成任务 ID 和对象路径
     const taskId = crypto.randomUUID();
-    const objectName = generateObjectName(authResult.user.id, taskId, fileName);
+    const objectPath = generateObjectPath(authResult.user.id, taskId, fileName);
     
     // 初始化分块上传
-    const { uploadId, uploadUrl } = await initiateMultipartUpload(objectName, env);
+    const { uploadId, uploadUrl } = await initiateMultipartUpload(objectPath, env);
     
     // 创建媒体任务记录
     const now = Date.now();
     const newTask: NewMediaTask = {
       id: taskId,
-      userId: authResult.user.id,
-      status: 'pending_upload',
+      user_id: authResult.user.id,
+      status: 'created',
       progress: 0,
-      fileName,
-      fileSize,
-      mimeType,
-      uploadUrl: objectName, // 存储 R2 对象路径
-      uploadId,
-      createdAt: now,
-      updatedAt: now,
+      file_name: fileName,
+      file_size: fileSize,
+      file_type: mimeType,
+      file_path: objectPath,
+      target_language: targetLanguage,
+      translation_style: style,
+      created_at: now,
     };
     
     // 插入任务到数据库
@@ -128,7 +129,8 @@ export async function POST(request: NextRequest) {
       taskId,
       uploadId,
       uploadUrl, // 前端分块上传端点
-      objectName, // R2 对象路径
+      objectPath, // R2 对象路径
+      objectName: objectPath, // 前端需要的字段名
       message: 'Workflow created successfully. Ready for file upload.',
       metadata: {
         fileName,

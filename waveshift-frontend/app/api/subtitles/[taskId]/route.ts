@@ -28,7 +28,7 @@ export async function GET(
       .from(mediaTasks)
       .where(and(
         eq(mediaTasks.id, taskId),
-        eq(mediaTasks.userId, authResult.user.id)
+        eq(mediaTasks.user_id, authResult.user.id)
       ))
       .limit(1);
 
@@ -36,15 +36,21 @@ export async function GET(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // 如果没有转录ID，返回空数组
-    if (!task.transcriptionId) {
+    // 通过taskId查找转录记录
+    const [transcription] = await db.select()
+      .from(transcriptions)
+      .where(eq(transcriptions.task_id, taskId))
+      .limit(1);
+
+    // 如果没有转录记录，返回空数组
+    if (!transcription) {
       return NextResponse.json({ sentences: [] });
     }
 
     // 获取转录片段
     const segments = await db.select()
       .from(transcriptionSegments)
-      .where(eq(transcriptionSegments.transcriptionId, task.transcriptionId))
+      .where(eq(transcriptionSegments.transcription_id, transcription.id))
       .orderBy(asc(transcriptionSegments.sequence));
 
     // 转换为旧格式兼容
@@ -52,13 +58,13 @@ export async function GET(
       id: index + 1,
       taskId: taskId,
       sentenceIndex: segment.sequence,
-      startMs: parseFloat(segment.start) * 1000, // 转换为毫秒
-      endMs: parseFloat(segment.end) * 1000,
-      rawText: segment.original,
-      transText: segment.translation,
+      startMs: segment.start_ms,
+      endMs: segment.end_ms,
+      rawText: segment.original_text,
+      transText: segment.translated_text,
       speakerId: segment.speaker,
-      createdAt: segment.createdAt,
-      updatedAt: segment.createdAt,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     }));
 
     return NextResponse.json({ sentences });
@@ -92,21 +98,31 @@ export async function PATCH(
       .from(mediaTasks)
       .where(and(
         eq(mediaTasks.id, taskId),
-        eq(mediaTasks.userId, authResult.user.id)
+        eq(mediaTasks.user_id, authResult.user.id)
       ))
       .limit(1);
 
-    if (!task || !task.transcriptionId) {
+    if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+    
+    // 通过taskId查找转录记录
+    const [transcription] = await db.select()
+      .from(transcriptions)
+      .where(eq(transcriptions.task_id, taskId))
+      .limit(1);
+
+    if (!transcription) {
+      return NextResponse.json({ error: 'Transcription not found' }, { status: 404 });
     }
     
     // 如果是清空操作
     if (body.action === 'clear') {
       await db.update(transcriptionSegments)
         .set({ 
-          translation: '',
+          translated_text: '',
         })
-        .where(eq(transcriptionSegments.transcriptionId, task.transcriptionId));
+        .where(eq(transcriptionSegments.transcription_id, transcription.id));
       
       return NextResponse.json({ success: true });
     }
@@ -121,10 +137,10 @@ export async function PATCH(
     // 根据序号更新转录片段
     await db.update(transcriptionSegments)
       .set({ 
-        translation: newTranslation,
+        translated_text: newTranslation,
       })
       .where(and(
-        eq(transcriptionSegments.transcriptionId, task.transcriptionId),
+        eq(transcriptionSegments.transcription_id, transcription.id),
         eq(transcriptionSegments.sequence, sentenceId)
       ));
 

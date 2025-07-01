@@ -197,7 +197,7 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                 <h3 className="text-lg font-medium">处理结果</h3>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {task.videoUrl && (
+                  {task.video_path && (
                     <Card>
                       <CardHeader className="pb-3">
                         <CardTitle className="text-base flex items-center gap-2">
@@ -207,7 +207,7 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                       </CardHeader>
                       <CardContent>
                         <Button asChild className="w-full">
-                          <a href={task.videoUrl} target="_blank" rel="noopener noreferrer">
+                          <a href={task.video_path} target="_blank" rel="noopener noreferrer">
                             播放/下载
                           </a>
                         </Button>
@@ -215,7 +215,7 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                     </Card>
                   )}
                   
-                  {task.audioUrl && (
+                  {task.audio_path && (
                     <Card>
                       <CardHeader className="pb-3">
                         <CardTitle className="text-base flex items-center gap-2">
@@ -225,7 +225,7 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                       </CardHeader>
                       <CardContent>
                         <Button asChild className="w-full">
-                          <a href={task.audioUrl} target="_blank" rel="noopener noreferrer">
+                          <a href={task.audio_path} target="_blank" rel="noopener noreferrer">
                             播放/下载
                           </a>
                         </Button>
@@ -242,9 +242,9 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                         转录结果
                       </CardTitle>
                       <CardDescription>
-                        语言: {task.transcription.targetLanguage} | 
+                        语言: {task.transcription.target_language} | 
                         风格: {task.transcription.style} | 
-                        片段数: {task.transcription.totalSegments}
+                        片段数: {task.transcription.total_segments}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -253,12 +253,12 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                           <div key={segment.id} className="border rounded p-3 space-y-1">
                             <div className="flex justify-between text-xs text-gray-500">
                               <span>#{segment.sequence}</span>
-                              <span>{segment.start} - {segment.end}</span>
+                              <span>{segment.start_ms} - {segment.end_ms}</span>
                               <span>{segment.speaker}</span>
                             </div>
                             <div className="text-sm">
-                              <p><strong>原文:</strong> {segment.original}</p>
-                              <p><strong>翻译:</strong> {segment.translation}</p>
+                              <p><strong>原文:</strong> {segment.original_text}</p>
+                              <p><strong>翻译:</strong> {segment.translated_text}</p>
                             </div>
                           </div>
                         ))}
