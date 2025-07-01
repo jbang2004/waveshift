@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **waveshift-frontend**: Next.js 前端应用，提供用户界面和媒体处理工作流
 2. **waveshift-workflow**: 工作流编排服务，协调各个处理步骤
-3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Rust 容器 + FFMPEG
+3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Cloudflare Containers + Rust + FFMPEG
 4. **waveshift-transcribe-worker**: 基于 Gemini API 的音频转录和翻译服务
 
 ## 开发命令
@@ -74,9 +74,9 @@ docker run -p 8080:8080 ffmpeg-container
 # 终端2: 运行 Cloudflare Worker
 npm run dev              # 启动开发服务器 (http://localhost:8787)
 
-# 🚀 推荐部署方式：使用 GitHub Actions
+# 🚀 推荐部署方式：使用 GitHub Actions Container 部署
 # 从根目录运行：
-npm run deploy:docker    # 触发 GitHub Actions Docker 部署
+npm run deploy:docker    # 触发 GitHub Actions Container 部署 (使用本地 Dockerfile)
 
 # 本地部署 (需要本地 Docker 环境)
 npm run deploy           # 构建容器并部署 Worker
@@ -219,6 +219,78 @@ wrangler secret put GEMINI_API_KEY
 3. **文件格式不支持**
    - 检查 MIME 类型是否在支持列表中
 
+### FFmpeg Worker 容器部署常见问题 🆘
+
+#### ❌ **VALIDATE_INPUT 错误** (已解决)
+- **症状**: 部署时报错 `Error creating application due to a misconfiguration - VALIDATE_INPUT`
+- **根本原因**: 
+  1. 使用外部镜像注册表 (如 GHCR)
+  2. 配置格式不符合 Cloudflare Container 标准
+  3. 使用了不支持的配置字段
+
+- **✅ 解决方案**:
+  ```json
+  // ❌ 错误配置
+  "containers": [{
+    "image": "ghcr.io/user/image:latest",  // 外部镜像
+    "instance_type": "standard",           // 不支持
+    "autoscaling": {...}                   // 不支持
+  }]
+  
+  // ✅ 正确配置  
+  "containers": [{
+    "name": "waveshift-ffmpeg-container",
+    "class_name": "FFmpegContainer",
+    "image": "./Dockerfile",               // 本地 Dockerfile
+    "max_instances": 3                     // 标准字段
+  }]
+  ```
+
+- **关键要点**:
+  - ✅ 必须使用本地 Dockerfile: `"image": "./Dockerfile"`
+  - ✅ Cloudflare 会自动构建和部署容器
+  - ✅ 避免外部镜像注册表 (GHCR, Docker Hub 等)
+  - ✅ 只使用官方支持的配置字段
+  - ✅ 确保 `class_name` 与 Durable Object 类名匹配
+
+#### 🔧 **Container 配置最佳实践**
+1. **wrangler.jsonc 标准格式**:
+   ```json
+   {
+     "containers": [{
+       "name": "service-container",
+       "class_name": "ServiceContainer", 
+       "image": "./Dockerfile",
+       "max_instances": 3
+     }],
+     "durable_objects": {
+       "bindings": [{
+         "name": "CONTAINER_BINDING",
+         "class_name": "ServiceContainer"
+       }]
+     },
+     "migrations": [{
+       "tag": "v1",
+       "new_sqlite_classes": ["ServiceContainer"]
+     }]
+   }
+   ```
+
+2. **Worker 代码结构**:
+   ```typescript
+   import { Container } from '@cloudflare/containers';
+   
+   export class ServiceContainer extends Container {
+     override defaultPort = 8080;
+     override sleepAfter = '5m';
+   }
+   ```
+
+3. **GitHub Actions 部署**:
+   - 移除 Docker 构建步骤
+   - 直接使用 `wrangler deploy`
+   - Cloudflare 会处理容器构建
+
 ### Wifski 常见问题
 1. **容器启动失败**
    - 确保 Docker 运行正常
@@ -230,7 +302,7 @@ wrangler secret put GEMINI_API_KEY
 
 ## 部署方式说明
 
-### 🚀 GitHub Actions Docker 部署 (推荐)
+### 🚀 GitHub Actions Container 部署 (推荐)
 适用于 **waveshift-ffmpeg-worker** 等需要容器的服务：
 
 ```bash
@@ -239,15 +311,21 @@ npm run deploy:docker
 ```
 
 **优势**：
-- ✅ 自动 Docker 构建和缓存
-- ✅ 使用 GitHub 容器注册表
+- ✅ ~~自动 Docker 构建和缓存~~ → **Cloudflare 自动构建容器**
+- ✅ ~~使用 GitHub 容器注册表~~ → **使用本地 Dockerfile**  
 - ✅ 构建时测试和验证
 - ✅ 支持强制重建选项
 - ✅ 无需本地 Docker 环境
+- ✅ **简化的部署流程** - 直接 `wrangler deploy`
 
 **GitHub Actions 工作流**：
-- `deploy-ffmpeg-docker.yml`: 专门用于 FFmpeg Worker 的完整 Docker 部署
+- `deploy-ffmpeg-docker.yml`: 专门用于 FFmpeg Worker 的 Container 部署
 - `deploy-services.yml`: 通用服务部署，包含基本 Docker 支持
+
+**⚠️ 重要变更 (2025-07)**：
+- 不再构建和推送到外部镜像注册表
+- Cloudflare 直接使用项目中的 Dockerfile 构建容器
+- 配置必须使用标准字段，避免 `instance_type` 和 `autoscaling`
 
 ### 🔧 本地部署
 适用于快速开发和测试：
@@ -282,10 +360,12 @@ npm run deploy:all
 - [ ] 配置 Service Binding 到 Transcribe Worker
 - [ ] 设置 R2 存储权限
 
-#### waveshift-ffmpeg-worker (Docker 部署)
-- [ ] 确保 GitHub 容器注册表权限
+#### waveshift-ffmpeg-worker (Container 部署) ⚠️ 重要
+- [ ] ✅ **使用本地 Dockerfile** - 必须设置 `"image": "./Dockerfile"`
+- [ ] ✅ **避免外部镜像注册表** - 不要使用 GHCR 或其他外部镜像
+- [ ] ✅ **使用标准配置字段** - 只使用 `max_instances`，避免 `instance_type` 和 `autoscaling`
 - [ ] 配置 R2 存储绑定
-- [ ] 验证容器健康检查端点
+- [ ] 验证容器健康检查端点 
 - [ ] 测试 FFMPEG 功能
 
 #### waveshift-transcribe-worker
