@@ -1,45 +1,50 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "waveshift-ffmpeg-worker",
-	"main": "src/index.ts",
-	"compatibility_date": "2025-06-14",
-	"compatibility_flags": ["nodejs_compat"],
-	"containers": [
-		{
-			"max_instances": 3,
-			"name": "ffmpeg-container",
-			"class_name": "FFmpegContainer",
-			"image": "./Dockerfile",
-			"instance_type": "standard",
-			"sleep_after": "5m"
-		}
-	],
-	"migrations": [
-		{
-			"new_sqlite_classes": ["FFmpegContainer"],
-			"tag": "v1"
-		}
-	],
-	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "FFmpegContainer",
-				"name": "FFMPEG_CONTAINER"
-			}
-		]
-	},
-	"observability": {
-		"enabled": true
-	},
-	"r2_buckets": [
-		{
-			"binding": "STORAGE",
-			"bucket_name": "separate-audio-video",
-			"preview_bucket_name": "separate-audio-video-preview"
-		}
-	],
-	"vars": {
-		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
-		"R2_BUCKET_NAME": "separate-audio-video"
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "waveshift-ffmpeg-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-14",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "containers": [
+    {
+      "class_name": "FFmpegContainer",
+      "image": "ghcr.io/jbang2004/waveshift/waveshift-ffmpeg-container:latest",
+      "instance_type": "standard",
+      "autoscaling": {
+        "minimum_instances": 1,
+        "maximum_instances": 3
+      }
+    }
+  ],
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "FFmpegContainer"
+      ],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "FFmpegContainer",
+        "name": "FFMPEG_CONTAINER"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "separate-audio-video",
+      "preview_bucket_name": "separate-audio-video-preview"
+    }
+  ],
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
+    "R2_BUCKET_NAME": "separate-audio-video"
+  }
 }
