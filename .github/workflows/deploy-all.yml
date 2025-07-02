@@ -1,9 +1,13 @@
 name: Deploy All WaveShift Services
 
 on:
-  # push:
-  #   branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to deploy (all/ffmpeg/transcribe/workflow/frontend)'
+        required: false
+        type: string
+        default: 'all'
 
 jobs:
   deploy-ffmpeg:

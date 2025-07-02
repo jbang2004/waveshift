@@ -2,10 +2,12 @@ name: Deploy FFmpeg Worker (Simple)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'waveshift-ffmpeg-worker/**'
-    branches: [main]
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild (ignore cache)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   deploy-ffmpeg-simple:
