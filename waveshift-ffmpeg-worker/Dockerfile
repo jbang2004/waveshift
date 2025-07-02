@@ -1,44 +1,39 @@
-# 使用最新的FFmpeg镜像 - 更稳定高效的方案
-FROM jrottenberg/ffmpeg:7.1-ubuntu2404 AS ffmpeg-base
+# 🔥 优化的FFmpeg容器 - 修复启动崩溃问题
+# 直接使用包含所有依赖的FFmpeg镜像作为基础
+FROM jrottenberg/ffmpeg:7.1-ubuntu2404 AS runtime-base
 
-# Rust构建阶段 - 使用最新稳定版本
-FROM rust:1.83 AS rust-builder
+# 安装Rust和构建工具
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . ~/.cargo/env \
+    && rm -rf /var/lib/apt/lists/*
 
+# 设置Rust环境
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# 复制源代码到容器
 WORKDIR /app
 COPY separate-container/Cargo.toml separate-container/Cargo.lock ./
 COPY separate-container/src ./src
 
 # 构建Rust应用
-RUN cargo build --release
+RUN . ~/.cargo/env && cargo build --release
 
-# 最终运行阶段 - 使用经过验证的Ubuntu基础镜像
-FROM ubuntu:22.04
+# 设置执行权限
+RUN chmod +x /app/target/release/separate-container
 
-# 安装运行时依赖 - 包含FFmpeg所需的系统库
-RUN apt-get update && apt-get install -y \
-    libssl3 \
-    ca-certificates \
-    curl \
-    libavcodec-dev \
-    libavformat-dev \
-    libavutil-dev \
-    libswscale-dev \
-    libswresample-dev \
-    && rm -rf /var/lib/apt/lists/*
+# 创建软链接到 /app 目录
+RUN ln -sf /app/target/release/separate-container /app/separate-container
 
-# 复制FFmpeg二进制
-COPY --from=ffmpeg-base /usr/local/bin/ffmpeg /usr/bin/ffmpeg
-COPY --from=ffmpeg-base /usr/local/bin/ffprobe /usr/bin/ffprobe
+# 验证FFmpeg可用性
+RUN ffmpeg -version && ffprobe -version
 
-# 复制FFmpeg库
-COPY --from=ffmpeg-base /usr/local/lib/ /usr/local/lib/
-
-# 复制Rust应用并设置执行权限
-COPY --from=rust-builder /app/target/release/separate-container /app/separate-container
-RUN chmod +x /app/separate-container
-
-# 设置环境变量 - 修复LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu
+# 验证Rust应用可执行
+RUN file /app/separate-container && ldd /app/separate-container
 
 # 设置工作目录
 WORKDIR /app
@@ -46,9 +41,19 @@ WORKDIR /app
 # 暴露端口
 EXPOSE 8080
 
-# 添加健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# 添加启动脚本进行调试
+RUN echo '#!/bin/bash\n\
+echo "🚀 Container启动调试信息"\n\
+echo "当前目录: $(pwd)"\n\
+echo "文件列表: $(ls -la)"\n\
+echo "FFmpeg版本: $(ffmpeg -version | head -1)"\n\
+echo "端口检查: $(netstat -tlnp 2>/dev/null | grep :8080 || echo \"端口8080未占用\")"\n\
+echo "启动Rust应用..."\n\
+exec "./separate-container"\n' > /app/start.sh && chmod +x /app/start.sh
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# 启动命令
-CMD ["./separate-container"]
+# 使用启动脚本
+CMD ["/app/start.sh"]
