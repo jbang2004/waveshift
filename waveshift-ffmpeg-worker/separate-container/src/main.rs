@@ -136,19 +136,58 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("启动 FFMPEG 分离服务器，监听端口 8080");
+    println!("🚀 启动 FFMPEG 分离服务器 V2");
+    println!("📋 系统信息:");
+    println!("  - 监听端口: 8080");
+    println!("  - 支持并行处理: 是");
+    println!("  - FFmpeg版本: 7.1");
     
+    // 检查FFmpeg是否可用
+    match tokio::process::Command::new("ffmpeg").arg("-version").output().await {
+        Ok(output) => {
+            if output.status.success() {
+                let version_info = String::from_utf8_lossy(&output.stdout);
+                let first_line = version_info.lines().next().unwrap_or("未知版本");
+                println!("✅ FFmpeg检查通过: {}", first_line);
+            } else {
+                eprintln!("❌ FFmpeg版本检查失败");
+                return Err("FFmpeg不可用".into());
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ 无法执行FFmpeg: {}", e);
+            return Err("FFmpeg不可执行".into());
+        }
+    }
+    
+    // 创建服务
     let make_svc = make_service_fn(|_conn| async {
         Ok::<_, hyper::Error>(service_fn(handle_request))
     });
     
+    // 绑定地址并启动服务器
     let addr = ([0, 0, 0, 0], 8080).into();
-    let server = Server::bind(&addr).serve(make_svc);
     
-    println!("服务器已启动: http://{}", addr);
+    println!("🔗 尝试绑定地址: {}", addr);
     
+    let server = match Server::try_bind(&addr) {
+        Ok(builder) => {
+            println!("✅ 地址绑定成功: {}", addr);
+            builder.serve(make_svc)
+        }
+        Err(e) => {
+            eprintln!("❌ 地址绑定失败: {}", e);
+            return Err(format!("无法绑定端口8080: {}", e).into());
+        }
+    };
+    
+    println!("🎉 FFMPEG 分离服务器启动成功!");
+    println!("📡 等待请求连接...");
+    
+    // 启动服务器
     if let Err(e) = server.await {
-        eprintln!("服务器错误: {}", e);
+        eprintln!("❌ 服务器运行错误: {}", e);
+        return Err(format!("服务器错误: {}", e).into());
     }
     
     Ok(())

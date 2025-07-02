@@ -8,11 +8,11 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    paths:
-      - 'waveshift-ffmpeg-worker/**'
-      - '.github/workflows/deploy-ffmpeg-docker.yml'
-    branches: [main]
+  # push:
+  #   paths:
+  #     - 'waveshift-ffmpeg-worker/**'
+  #     - '.github/workflows/deploy-ffmpeg-docker.yml'
+  #   branches: [main]
 
 env:
   REGISTRY: ghcr.io
