@@ -1,16 +1,16 @@
 import { Container } from '@cloudflare/containers';
 import { Env } from './types';
 
-export class FFmpegContainer extends Container {
+export class FFmpegContainerV2 extends Container {
 	override defaultPort = 8080;
-	override sleepAfter = '5m';
+	override sleepAfter = '3m';
 
 	override onStart() {
-		console.log('FFmpeg Container successfully started');
+		console.log('FFmpeg Container started');
 	}
 	
 	override onStop() {
-		console.log('FFmpeg Container successfully shut down');
+		console.log('FFmpeg Container stopped');
 	}
 	
 	override onError(error: unknown) {

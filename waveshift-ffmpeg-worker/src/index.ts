@@ -3,7 +3,7 @@ import { getRandom } from '@cloudflare/containers';
 import { Env, SeparateParams, SeparateResult } from './types';
 
 // 导出容器类
-export { FFmpegContainer } from './container';
+export { FFmpegContainerV2 } from './container';
 
 const CONTAINER_INSTANCE_COUNT = 3;
 
@@ -95,5 +95,43 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 	}
 }
 
-// 默认导出（用于向后兼容）
-export default FFmpegWorker;
+// HTTP处理函数 - 用于健康检查和测试
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		
+		// 健康检查端点
+		if (url.pathname === '/health') {
+			return new Response('OK', { status: 200 });
+		}
+		
+		// 容器状态检查
+		if (url.pathname === '/container-status') {
+			try {
+				const container = await getRandom(env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
+				const response = await container.fetch(new Request('https://ffmpeg/health'));
+				
+				return new Response(JSON.stringify({
+					worker: 'healthy',
+					container: response.ok ? 'healthy' : 'unhealthy',
+					instance_type: 'standard',  // 从配置中显示
+					memory: '4GB'
+				}), {
+					headers: { 'Content-Type': 'application/json' }
+				});
+			} catch (error) {
+				return new Response(JSON.stringify({
+					worker: 'healthy',
+					container: 'error',
+					error: error instanceof Error ? error.message : 'Unknown error'
+				}), {
+					status: 500,
+					headers: { 'Content-Type': 'application/json' }
+				});
+			}
+		}
+		
+		return new Response('Not Found', { status: 404 });
+	}
+};
+

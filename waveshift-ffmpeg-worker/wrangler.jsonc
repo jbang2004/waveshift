@@ -8,24 +8,25 @@
   ],
   "containers": [
     {
-      "name": "waveshift-ffmpeg-container",
-      "class_name": "FFmpegContainer",
+      "name": "waveshift-ffmpeg-container-v2",
+      "class_name": "FFmpegContainerV2",
       "image": "./Dockerfile",
-      "max_instances": 3
+      "instance_type": "standard",
+      "max_instances": 5
     }
   ],
   "migrations": [
     {
       "new_sqlite_classes": [
-        "FFmpegContainer"
+        "FFmpegContainerV2"
       ],
-      "tag": "v1"
+      "tag": "v2"
     }
   ],
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "FFmpegContainer",
+        "class_name": "FFmpegContainerV2",
         "name": "FFMPEG_CONTAINER"
       }
     ]

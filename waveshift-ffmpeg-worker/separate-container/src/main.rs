@@ -1,4 +1,4 @@
-use std::process::Command;
+use tokio::process::Command;
 use std::io::Write;
 use tempfile::NamedTempFile;
 use hyper::service::{make_service_fn, service_fn};
@@ -25,6 +25,7 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
     
     // 获取请求体
     let body_bytes = hyper::body::to_bytes(req.into_body()).await?;
+    println!("接收文件大小: {} bytes", body_bytes.len());
     
     // 创建临时文件来保存上传的视频
     let mut input_file = NamedTempFile::new()?;
@@ -40,51 +41,47 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
     println!("音频输出: {}", audio_filename);
     println!("视频输出: {}", video_filename);
     
-    // 使用 FFMPEG 分离音频 (使用 copy 避免重新编码)
-    println!("开始音频分离...");
-    let audio_result = Command::new("ffmpeg")
+    println!("开始并行音视频分离...");
+    
+    // 🔥 关键优化：并行执行音频和视频分离
+    let audio_future = Command::new("ffmpeg")
         .args(&[
             "-i", input_path.to_str().unwrap(),
-            "-vn", // 不包含视频
-            "-c:a", "copy", // 复制音频流，不重新编码
-            "-y", // 覆盖输出文件
+            "-vn",      // 不包含视频
+            "-c:a", "copy",  // 复制音频流
+            "-y",       // 覆盖输出文件
             &audio_filename
         ])
-        .output()?;
-    
-    if !audio_result.status.success() {
-        let error_msg = String::from_utf8_lossy(&audio_result.stderr);
-        let stdout_msg = String::from_utf8_lossy(&audio_result.stdout);
-        eprintln!("音频分离失败:");
-        eprintln!("STDERR: {}", error_msg);
-        eprintln!("STDOUT: {}", stdout_msg);
-        eprintln!("Exit code: {:?}", audio_result.status.code());
-        return Err(format!("音频分离失败: {}", error_msg).into());
-    }
-    println!("音频分离成功");
-    
-    // 使用 FFMPEG 生成无声视频
-    println!("开始视频分离...");
-    let video_result = Command::new("ffmpeg")
+        .output();
+
+    let video_future = Command::new("ffmpeg")
         .args(&[
             "-i", input_path.to_str().unwrap(),
-            "-an", // 不包含音频
-            "-c:v", "copy", // 复制视频流，不重新编码
-            "-y", // 覆盖输出文件
+            "-an",      // 不包含音频
+            "-c:v", "copy",  // 复制视频流
+            "-y",       // 覆盖输出文件
             &video_filename
         ])
-        .output()?;
+        .output();
+
+    // 等待两个任务同时完成 - 这是关键性能提升点
+    let (audio_result, video_result) = tokio::try_join!(audio_future, video_future)?;
     
+    // 检查音频分离结果
+    if !audio_result.status.success() {
+        let error_msg = String::from_utf8_lossy(&audio_result.stderr);
+        eprintln!("音频分离失败: {}", error_msg);
+        return Err(format!("音频分离失败: {}", error_msg).into());
+    }
+    
+    // 检查视频分离结果
     if !video_result.status.success() {
         let error_msg = String::from_utf8_lossy(&video_result.stderr);
-        let stdout_msg = String::from_utf8_lossy(&video_result.stdout);
-        eprintln!("视频分离失败:");
-        eprintln!("STDERR: {}", error_msg);
-        eprintln!("STDOUT: {}", stdout_msg);
-        eprintln!("Exit code: {:?}", video_result.status.code());
+        eprintln!("视频分离失败: {}", error_msg);
         return Err(format!("视频分离失败: {}", error_msg).into());
     }
-    println!("视频分离成功");
+    
+    println!("并行处理完成！");
     
     println!("FFMPEG 处理完成");
     
@@ -133,7 +130,7 @@ async fn separate_media(req: Request<Body>) -> Result<Response<Body>> {
         .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
         .body(Body::from(response_body))?;
     
-    println!("响应发送完成");
+    println!("并行处理响应发送完成");
     Ok(response)
 }
 
