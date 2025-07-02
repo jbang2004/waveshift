@@ -26,14 +26,18 @@ COPY separate-container/src ./src
 # 构建 Rust 应用
 RUN cargo build --release
 
-# 运行阶段 - 最小化镜像
-FROM alpine:3.19
+# 运行阶段 - Ubuntu原生glibc环境
+FROM ubuntu:22.04
 
-# 安装运行时依赖
-RUN apk add --no-cache \
+# 设置非交互式安装
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 安装运行时依赖 - 原生glibc，无兼容层
+RUN apt-get update && apt-get install -y \
     ffmpeg \
     ca-certificates \
-    libc6-compat
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # 创建工作目录
 WORKDIR /app
