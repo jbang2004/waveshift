@@ -1,8 +1,8 @@
 # 使用最新的FFmpeg镜像 - 更稳定高效的方案
 FROM jrottenberg/ffmpeg:7.1-ubuntu2404 AS ffmpeg-base
 
-# Rust构建阶段
-FROM rust:1.70 AS rust-builder
+# Rust构建阶段 - 使用最新稳定版本
+FROM rust:1.83 AS rust-builder
 
 WORKDIR /app
 COPY separate-container/Cargo.toml separate-container/Cargo.lock ./
