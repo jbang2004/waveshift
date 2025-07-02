@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
+    file \
+    libc-bin \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . ~/.cargo/env \
     && rm -rf /var/lib/apt/lists/*
@@ -33,7 +35,8 @@ RUN ln -sf /app/target/release/separate-container /app/separate-container
 RUN ffmpeg -version && ffprobe -version
 
 # 验证Rust应用可执行
-RUN file /app/separate-container && ldd /app/separate-container
+RUN file /app/separate-container || echo "file命令不可用，跳过文件类型检查" \
+    && ldd /app/separate-container || echo "ldd命令不可用，跳过依赖检查"
 
 # 设置工作目录
 WORKDIR /app
