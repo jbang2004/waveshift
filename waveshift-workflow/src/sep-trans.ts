@@ -93,6 +93,14 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					const segments: any[] = [];
 					let metadata: any = null;
 
+					// 时间格式解析函数: "XmYsZms" -> 毫秒数
+					const parseTimeToMs = (timeStr: string): number => {
+						const match = timeStr.match(/(\d+)m(\d+)s(\d+)ms/);
+						if (!match) return 0;
+						const [, minutes, seconds, ms] = match;
+						return parseInt(minutes) * 60000 + parseInt(seconds) * 1000 + parseInt(ms);
+					};
+
 					try {
 						while (true) {
 							const { done, value } = await reader.read();
@@ -109,15 +117,16 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 										if (data.type === 'start') {
 											metadata = data.metadata;
 										} else if (data.type === 'segment') {
-											// 转换字段名以匹配数据库schema
+											// 正确映射字段: original -> original_text, translation -> translated_text
+											// 并将时间字符串转换为毫秒数
 											const segment = {
 												sequence: data.segment.sequence,
-												start_ms: data.segment.start_ms || 0,
-												end_ms: data.segment.end_ms || 0,
+												start_ms: parseTimeToMs(data.segment.start || '0m0s0ms'),
+												end_ms: parseTimeToMs(data.segment.end || '0m0s0ms'),
 												content_type: data.segment.content_type || 'speech',
 												speaker: data.segment.speaker || 'unknown',
-												original_text: data.segment.original_text || '',
-												translated_text: data.segment.translated_text || ''
+												original_text: data.segment.original || '',
+												translated_text: data.segment.translation || ''
 											};
 											segments.push(segment);
 										} else if (data.type === 'error') {

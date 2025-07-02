@@ -4,7 +4,6 @@
   "private": true,
   "description": "WaveShift - Microservices Media Processing Platform",
   "scripts": {
-    "deploy:all": "./deploy-all.sh",
     "deploy:smart": "./scripts/smart-deploy.sh",
     "deploy:docker": "./scripts/deploy-docker.sh",
     "deploy:frontend": "cd waveshift-frontend && npm run deploy",
