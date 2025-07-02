@@ -7,6 +7,39 @@ import { verifyAuth } from '@/lib/auth/verify-request';
 
 
 
+// 智能轮询频率调整
+function getPollingInterval(status: string): number {
+  switch (status) {
+    case 'created':
+    case 'uploading': return 3000;    // 上传阶段3秒
+    case 'separating': return 2000;   // 分离阶段2秒  
+    case 'transcribing': return 1000; // 转录阶段1秒
+    case 'completed':
+    case 'failed': return 0;          // 完成就停止
+    default: return 5000;             // 其他状态5秒
+  }
+}
+
+// 获取任务基本状态信息（轻量级查询）
+async function getTaskBasicInfo(taskId: string, userId: string, db: any) {
+  const [task] = await db.select({
+    id: mediaTasks.id,
+    status: mediaTasks.status,
+    progress: mediaTasks.progress,
+    error_message: mediaTasks.error_message,
+    user_id: mediaTasks.user_id,
+    transcription_id: mediaTasks.transcription_id,
+  })
+    .from(mediaTasks)
+    .where(and(
+      eq(mediaTasks.id, taskId),
+      eq(mediaTasks.user_id, userId)
+    ))
+    .limit(1);
+    
+  return task;
+}
+
 // 获取任务详细信息
 async function getTaskWithDetails(taskId: string, userId: string, db: any, env: any) {
   // 获取任务基本信息
@@ -65,43 +98,66 @@ async function getTaskWithDetails(taskId: string, userId: string, db: any, env: 
   };
 }
 
-// 创建 SSE 响应
+// 创建智能 SSE 响应
 function createSSEResponse(taskId: string, userId: string, db: any, env: any) {
   const encoder = new TextEncoder();
-  
-  
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   
-  // 定期查询状态
-  const intervalId = setInterval(async () => {
+  let lastStatus = '';
+  let lastProgress = 0;
+  
+  const poll = async () => {
     try {
-      const task = await getTaskWithDetails(taskId, userId, db, env);
+      // 先查基本信息（轻量级查询）
+      const basicTask = await getTaskBasicInfo(taskId, userId, db);
       
-      if (!task) {
+      if (!basicTask) {
         await writer.write(encoder.encode(
           `data: ${JSON.stringify({ error: 'Task not found' })}\n\n`
         ));
-        clearInterval(intervalId);
         await writer.close();
         return;
       }
       
+      // 只在状态变化或任务完成时查询完整数据
+      let taskData;
+      if (basicTask.status !== lastStatus || 
+          basicTask.progress !== lastProgress ||
+          basicTask.status === 'completed' || 
+          basicTask.status === 'failed') {
+        taskData = await getTaskWithDetails(taskId, userId, db, env);
+      } else {
+        taskData = basicTask;
+      }
+      
       await writer.write(encoder.encode(
-        `data: ${JSON.stringify(task)}\n\n`
+        `data: ${JSON.stringify(taskData)}\n\n`
       ));
       
-      // 如果任务完成或失败，停止轮询
-      if (task.status === 'completed' || task.status === 'failed') {
-        clearInterval(intervalId);
+      lastStatus = basicTask.status;
+      lastProgress = basicTask.progress || 0;
+      
+      // 动态调整轮询频率
+      const newInterval = getPollingInterval(basicTask.status);
+      
+      if (newInterval === 0) {
+        // 任务完成，停止轮询
         await writer.close();
+        return;
       }
+      
+      // 安排下次轮询
+      setTimeout(poll, newInterval);
+      
     } catch (error) {
       console.error('SSE polling error:', error);
-      clearInterval(intervalId);
       await writer.close();
     }
-  }, 1000); // 每秒查询一次
+  };
+  
+  // 开始轮询
+  poll();
   
   return new Response(readable, {
     headers: {

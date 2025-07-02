@@ -13,7 +13,7 @@ import { LanguageSwitch } from "@/components/ui/language-switch";
 import { cn } from "@/lib/utils";
 import { Subtitle } from "@/types";
 import { Translations } from "@/lib/translations";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 // NextAuth.js + D1 数据库架构，通过 API 路由访问数据
 import Skeleton, { SkeletonTheme } from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
@@ -64,7 +64,6 @@ export default function SubtitlesPanel({
 }: SubtitlesPanelProps) {
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationStatus, setTranslationStatus] = useState<'idle' | 'translating' | 'translated' | 'error'>('idle');
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // 处理语言切换，避免页面刷新
   const handleLanguageChange = async (newLanguage: string) => {
@@ -78,64 +77,7 @@ export default function SubtitlesPanel({
     }
   };
 
-  // 轮询 D1 数据库中的翻译数据
-  const pollTranslationProgress = async () => {
-    if (!currentTaskId) return;
-    
-    try {
-      const response = await fetch(`/api/subtitles/${currentTaskId}`);
-      if (!response.ok) {
-        console.error('轮询翻译数据失败:', response.statusText);
-        return;
-      }
-
-      const data = await response.json() as any;
-
-      if (data && data.sentences) {
-        // 检查翻译进度
-        let hasAnyTranslation = false;
-        let allTranslated = true;
-        let translatedCount = 0;
-        const totalCount = data.sentences.length;
-
-        // 更新每个句子的翻译状态
-        data.sentences.forEach((sentence: { id: number; sentenceIndex: number; transText: string | null }) => {
-          const hasTranslation = sentence.transText && sentence.transText.trim() !== '';
-          if (hasTranslation && sentence.transText) {
-            hasAnyTranslation = true;
-            translatedCount++;
-            // 实时更新UI中的翻译内容，但不同步数据库（因为数据已经在数据库中了）
-            updateSubtitleTranslation(sentence.id.toString(), sentence.transText, false);
-          } else {
-            allTranslated = false;
-          }
-        });
-
-        // 开发环境输出翻译进度
-        if (hasAnyTranslation && process.env.NODE_ENV === 'development') {
-          console.log(`翻译进度: ${translatedCount}/${totalCount} (${Math.round(translatedCount/totalCount*100)}%)`);
-        }
-
-        // 如果所有句子都已翻译完成
-        if (hasAnyTranslation && allTranslated) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('翻译完成！');
-          }
-          setTranslationStatus('translated');
-          setIsTranslating(false);
-          onTranslationComplete();
-          
-          // 停止轮询
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('轮询翻译进度异常:', err);
-    }
-  };
+  // 注意：翻译功能已集成到workflow中，无需单独的轮询机制
 
   const handleTranslate = async () => {
     if (!currentTaskId || !targetLanguage) return;
@@ -155,11 +97,6 @@ export default function SubtitlesPanel({
       setTranslationStatus('translating');
       onTranslationStart(); // 通知父组件翻译开始
       
-      // 停止当前的轮询（如果有的话）
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
       
       if (process.env.NODE_ENV === 'development') {
         console.log('清空数据库中的翻译内容...');
@@ -187,16 +124,15 @@ export default function SubtitlesPanel({
       // 稍微延迟确保数据库更新完成
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // TODO: 在新架构中，翻译功能已集成到workflow中
-      // 这里可能需要调用新的翻译API或直接从数据库获取结果
-      console.log('Translation will be handled by workflow in new architecture');
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('翻译请求已发送，开始轮询结果...');
-      }
+      // 新架构：翻译功能已集成到workflow中，直接从数据库获取结果
+      console.log('Translation is handled automatically by workflow');
       
-      // 开始轮询后端API中的翻译数据
-      pollIntervalRef.current = setInterval(pollTranslationProgress, 1000); // 每1秒轮询一次
+      // 直接获取翻译结果，不需要轮询
+      await fetchSubtitles(currentTaskId, targetLanguage);
+      
+      setTranslationStatus('translated');
+      setIsTranslating(false);
+      onTranslationComplete();
 
     } catch (err) {
       console.error('翻译失败:', err);
@@ -204,11 +140,6 @@ export default function SubtitlesPanel({
       setIsTranslating(false);
       onTranslationComplete();
       alert(`翻译失败: ${err instanceof Error ? err.message : '未知错误'}`);
-      
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
     }
   };
 
@@ -219,22 +150,8 @@ export default function SubtitlesPanel({
     }
     setTranslationStatus('idle');
     setIsTranslating(false);
-    
-    // 清理轮询定时器
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
   }, [currentTaskId, targetLanguage]);
 
-  // 组件卸载时清理定时器
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []);
 
   return (
     <div className={cn(
