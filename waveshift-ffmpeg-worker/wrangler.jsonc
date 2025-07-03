@@ -20,7 +20,7 @@
       "new_sqlite_classes": [
         "FFmpegContainer"
       ],
-      "tag": "v3"
+      "tag": "v1"
     }
   ],
   "durable_objects": {
