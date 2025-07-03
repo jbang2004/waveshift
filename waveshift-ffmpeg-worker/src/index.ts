@@ -3,7 +3,7 @@ import { getRandom } from '@cloudflare/containers';
 import { Env, SeparateParams, SeparateResult } from './types';
 
 // 导出容器类
-export { FFmpegContainerV2 } from './container';
+export { FFmpegContainer } from './container';
 
 const CONTAINER_INSTANCE_COUNT = 3;
 
