@@ -25,11 +25,8 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 			
 			console.log(`原始文件读取成功，大小: ${originalData.size} bytes`);
 			
-			// 2. 获取容器实例并确保启动
+			// 2. 获取容器实例
 			const container = await getRandom(this.env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
-			
-			// 确保容器已启动 - 这是关键的修复
-			await container.start();
 			
 			// 3. 调用 FFMPEG 处理 - 发送原始二进制数据
 			const videoBuffer = await originalData.arrayBuffer();
@@ -114,10 +111,6 @@ export default {
 				console.log('正在获取容器实例...');
 				const container = await getRandom(env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
 				console.log(`容器实例获取成功: ${container}`);
-				
-				// 确保容器启动
-				await container.start();
-				console.log('容器已启动');
 				
 				const response = await container.fetch(new Request('https://ffmpeg/health'));
 				console.log(`容器健康检查响应: status=${response.status}, ok=${response.ok}`);
