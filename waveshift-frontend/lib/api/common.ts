@@ -8,6 +8,7 @@ import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { drizzle } from 'drizzle-orm/d1';
 import { AuthTokens } from '@/lib/auth/jwt';
 import { z } from 'zod';
+import { getDomainConfig, getCookieOptions, logDomainDebugInfo } from '@/lib/domain-utils';
 
 // Cloudflare 环境接口
 export interface CloudflareEnv {
@@ -240,55 +241,67 @@ export function validateRequestData<T>(
 export function setJWTCookies(
   response: NextResponse,
   accessToken: string,
-  refreshToken: string
+  refreshToken: string,
+  request: NextRequest
 ): void {
-  // 在 Cloudflare Workers 中，NEXTJS_ENV 更可靠
-  const isProduction = process.env.NEXTJS_ENV === 'production' || process.env.NODE_ENV === 'production';
+  // 获取域名配置
+  const domainConfig = getDomainConfig(request);
   
-  // 在 Cloudflare Workers 中，使用 Set-Cookie 头部
-  const cookieSettings = {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax' as const,
-    path: '/',
-  };
+  // 调试日志（仅开发环境）
+  logDomainDebugInfo(request, domainConfig);
   
-  // 在 Cloudflare Workers 中，使用较宽松的 SameSite 设置
-  const sameSiteValue = isProduction ? 'None' : 'Lax';
+  // 获取Cookie过期时间配置
+  const authCookieMaxAge = parseInt(process.env.AUTH_COOKIE_MAX_AGE || '604800'); // 默认7天
+  const accessTokenMaxAge = 15 * 60; // 15分钟
+  const refreshTokenMaxAge = authCookieMaxAge; // 7天（可配置）
   
-  // 设置访问令牌 Cookie (15分钟)
-  const accessTokenCookie = `access_token=${accessToken}; Path=/; HttpOnly; SameSite=${sameSiteValue}; Max-Age=${15 * 60}${isProduction ? '; Secure' : ''}`;
-  response.headers.append('Set-Cookie', accessTokenCookie);
+  // 统一的Cookie配置
+  const accessTokenOptions = getCookieOptions(domainConfig, accessTokenMaxAge);
+  const refreshTokenOptions = getCookieOptions(domainConfig, refreshTokenMaxAge);
   
-  // 设置刷新令牌 Cookie (30天)  
-  const refreshTokenCookie = `refreshToken=${refreshToken}; Path=/; HttpOnly; SameSite=${sameSiteValue}; Max-Age=${30 * 24 * 60 * 60}${isProduction ? '; Secure' : ''}`;
-  response.headers.append('Set-Cookie', refreshTokenCookie);
+  // 设置访问令牌Cookie
+  response.cookies.set('access_token', accessToken, accessTokenOptions);
   
-  // 也尝试 NextJS 的 cookie API 作为备用
-  response.cookies.set('access_token', accessToken, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: sameSiteValue === 'None' ? 'none' : 'lax',
-    path: '/',
-    maxAge: 15 * 60, // 15 minutes
-  });
-
-  response.cookies.set('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: sameSiteValue === 'None' ? 'none' : 'lax',
-    path: '/',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  });
+  // 设置刷新令牌Cookie
+  response.cookies.set('refreshToken', refreshToken, refreshTokenOptions);
   
+  // 开发环境调试日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🍪 Setting JWT Cookies:', {
+      accessTokenOptions,
+      refreshTokenOptions,
+      domain: domainConfig.cookieDomain,
+    });
+  }
 }
 
 /**
  * 清除认证 Cookie
+ * 使用与设置时相同的配置确保Cookie能被正确清除
  */
-export function clearAuthCookies(response: NextResponse): void {
-  response.cookies.delete('access_token');
-  response.cookies.delete('refreshToken');
+export function clearAuthCookies(response: NextResponse, request: NextRequest): void {
+  // 获取域名配置（与设置时使用相同配置）
+  const domainConfig = getDomainConfig(request);
+  
+  // 调试日志（仅开发环境）
+  logDomainDebugInfo(request, domainConfig);
+  
+  // 获取清除Cookie的配置（maxAge=0表示立即过期）
+  const clearOptions = getCookieOptions(domainConfig, 0);
+  
+  // 清除访问令牌Cookie
+  response.cookies.set('access_token', '', clearOptions);
+  
+  // 清除刷新令牌Cookie
+  response.cookies.set('refreshToken', '', clearOptions);
+  
+  // 开发环境调试日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🗑️ Clearing JWT Cookies:', {
+      clearOptions,
+      domain: domainConfig.cookieDomain,
+    });
+  }
 }
 
 /**

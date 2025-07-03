@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { clearAuthCookies } from '@/lib/api/common';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,23 +11,8 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
 
-    // 清除访问令牌Cookie
-    response.cookies.set('access_token', '', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0, // 立即过期
-    });
-
-    // 清除刷新令牌Cookie
-    response.cookies.set('refreshToken', '', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0, // 立即过期
-    });
+    // 使用统一的Cookie清除函数（与设置时使用相同的域名配置）
+    clearAuthCookies(response, request);
 
     return response;
   } catch (error) {

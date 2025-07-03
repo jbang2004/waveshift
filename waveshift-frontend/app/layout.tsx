@@ -63,6 +63,13 @@ export default async function RootLayout({
   // 解析 access_token cookie（若存在）
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value as string | undefined;
+  
+  // 输出详细调试信息（使用console.error确保在生产环境也能看到）
+  console.error('🍪 [Layout SSR] access_token found:', !!token);
+  if (!token) {
+    const allCookies = cookieStore.getAll();
+    console.error('🍪 [Layout SSR] No access_token, available cookies:', allCookies.map(c => c.name).join(', '));
+  }
 
   let initialUser: { 
     id: string; 

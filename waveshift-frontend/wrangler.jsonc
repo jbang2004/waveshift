@@ -52,6 +52,10 @@
     "NEXT_PUBLIC_R2_BUCKET_NAME": "waveshift-media",
     "R2_BUCKET_NAME": "waveshift-media",
     "R2_ENDPOINT": "https://1298fa35ac940c688dc1b6d8f5eead72.r2.cloudflarestorage.com",
-    "R2_REGION": "auto"
+    "R2_REGION": "auto",
+    "COOKIE_DOMAIN": ".waveshift.net",
+    "PRIMARY_DOMAIN": "https://www.waveshift.net",
+    "ALLOWED_ORIGINS": "https://www.waveshift.net,https://waveshift-frontend.jbang20042004.workers.dev",
+    "AUTH_COOKIE_MAX_AGE": "604800"
   }
 } 

@@ -72,8 +72,8 @@ async function handleLogin(request: NextRequest) {
     'Login successful'
   );
 
-  // 设置认证 Cookies
-  setJWTCookies(response, accessToken, refreshToken);
+  // 设置认证 Cookies（传递request参数用于域名检测）
+  setJWTCookies(response, accessToken, refreshToken, request);
 
   return response;
 }
