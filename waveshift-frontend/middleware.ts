@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthTokens } from '@/lib/auth/jwt';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { getAccessToken } from '@/lib/cookie-utils';
 
 // 受保护的路由 - 导航栏的三个功能页面需要登录后才能访问
 const protectedRoutes = [
@@ -24,26 +23,18 @@ export async function middleware(request: NextRequest) {
 
   if (isProtectedRoute || isProtectedApi) {
     try {
-      // 使用增强的Cookie读取函数
-      const token = getAccessToken(request);
-      
-      // 输出详细调试信息
-      console.error('🍪 [Middleware] Enhanced token reading result:', !!token);
-      console.error('🍪 [Middleware] Host:', request.headers.get('host'));
-      console.error('🍪 [Middleware] Path:', pathname);
+      // 获取令牌
+      const token = request.cookies.get('access_token')?.value;
       
       if (!token) {
-        console.error('🚫 [Middleware] No access token found');
         if (isProtectedRoute) {
-          console.error('🚫 [Middleware] Redirecting to /auth for protected route:', pathname);
+          // 重定向到登录页面
           return NextResponse.redirect(new URL('/auth', request.url));
         } else {
-          console.error('🚫 [Middleware] Returning 401 for protected API:', pathname);
+          // API路由返回401
           return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
         }
       }
-      
-      console.error('✅ [Middleware] Access token found, proceeding with verification');
 
       // 验证令牌
       const context = await getCloudflareContext({ async: true });
