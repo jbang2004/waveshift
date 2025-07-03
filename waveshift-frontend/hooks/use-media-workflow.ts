@@ -184,11 +184,20 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
   ): Promise<string> => {
     try {
       const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB per chunk
-      const MAX_CONCURRENT_UPLOADS = 3; // 最大并发上传数
+      const MAX_CONCURRENT_UPLOADS = 8; // 最大并发上传数（基于官方建议优化）
       const MAX_RETRIES = 3; // 每个分片最大重试次数
 
-      // 1. 初始化分段上传
-      const initResponse = await fetch('/api/upload/multipart/create', {
+      // 基于HTTP状态码判断是否可重试（官方推荐）
+      const isRetriableError = (status: number): boolean => {
+        // 基于HTTP标准的可重试状态码
+        return [408, 429, 500, 502, 503, 504].includes(status);
+      };
+
+      // 1. 初始化分段上传（官方API格式）
+      const initUrl = new URL('/api/upload/multipart', window.location.origin);
+      initUrl.searchParams.set('action', 'mpu-create');
+      
+      const initResponse = await fetch(initUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -235,78 +244,95 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
       const failedParts: number[] = [];
       let completedChunks = 0;
 
-      // 4. 分片上传函数（支持重试）
-      const uploadChunk = async (chunk: typeof chunks[0], retryCount = 0): Promise<void> => {
-        try {
-          const response = await fetch('/api/upload/multipart/part', {
-            method: 'PUT',
-            headers: {
-              'x-upload-id': uploadId,
-              'x-part-number': chunk.partNumber.toString(),
-              'x-object-key': objectKey,
-              'x-task-id': taskId,
-              'Content-Type': 'application/octet-stream',
-            },
-            body: chunk.blob,
-          });
+      // 4. 分片上传函数（官方API格式 + 智能重试）
+      const uploadChunk = async (chunk: { partNumber: number; start: number; end: number; blob: Blob }): Promise<void> => {
+        for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+          try {
+            // 使用URL参数传递参数（官方模式）
+            const uploadUrl = new URL('/api/upload/multipart', window.location.origin);
+            uploadUrl.searchParams.set('action', 'mpu-uploadpart');
+            uploadUrl.searchParams.set('uploadId', uploadId);
+            uploadUrl.searchParams.set('partNumber', chunk.partNumber.toString());
+            uploadUrl.searchParams.set('key', objectKey);
+            uploadUrl.searchParams.set('taskId', taskId);
+            
+            const response = await fetch(uploadUrl.toString(), {
+              method: 'PUT',
+              body: chunk.blob, // 直接传递blob数据
+            });
 
-          if (!response.ok) {
-            const errorData = await response.json() as { error?: string };
-            throw new Error(errorData.error || `分片 ${chunk.partNumber} 上传失败`);
-          }
+            if (!response.ok) {
+              const error: any = new Error(`分片 ${chunk.partNumber} 上传失败: ${response.status}`);
+              error.status = response.status;
+              throw error;
+            }
 
-          const result = await response.json() as { etag: string; partNumber: number };
-          
-          // 记录成功上传的分片
-          uploadedParts.push({
-            partNumber: chunk.partNumber,
-            etag: result.etag
-          });
+            const result = await response.json() as { etag: string };
+            
+            // 记录成功上传的分片
+            uploadedParts.push({
+              partNumber: chunk.partNumber,
+              etag: result.etag
+            });
 
-          completedChunks++;
-          const progress = Math.round((completedChunks / totalChunks) * 100);
-          onProgress(progress);
+            completedChunks++;
+            const progress = Math.round((completedChunks / totalChunks) * 100);
+            onProgress(progress);
 
-          console.log(`分片 ${chunk.partNumber}/${totalChunks} 上传成功 (${progress}%)`);
+            console.log(`分片 ${chunk.partNumber}/${totalChunks} 上传成功 (${progress}%)`);
+            return; // 成功，退出重试循环
 
-        } catch (error) {
-          console.error(`分片 ${chunk.partNumber} 上传失败 (尝试 ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
-          
-          if (retryCount < MAX_RETRIES) {
-            // 重试
-            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // 递增延迟
-            return uploadChunk(chunk, retryCount + 1);
-          } else {
-            // 重试次数耗尽
-            failedParts.push(chunk.partNumber);
-            throw error;
+          } catch (error: any) {
+            const isLastAttempt = attempt === MAX_RETRIES + 1;
+            const shouldRetry = !isLastAttempt && isRetriableError(error.status);
+            
+            console.error(`分片 ${chunk.partNumber} 上传失败 (尝试 ${attempt}/${MAX_RETRIES + 1}):`, error.message);
+            
+            if (!shouldRetry) {
+              // 不可重试的错误或已达最大重试次数
+              failedParts.push(chunk.partNumber);
+              throw error;
+            }
+            
+            // 指数退避延迟重试
+            const baseDelay = Math.pow(2, attempt - 1) * 1000;
+            const jitter = Math.random() * 500; // 添加抖动避免请求冲突
+            await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
           }
         }
       };
 
-      // 5. 并发上传分片
-      const uploadPromises: Promise<void>[] = [];
-      let currentIndex = 0;
-
-      const processNextChunk = async (): Promise<void> => {
-        if (currentIndex >= chunks.length) return;
+      // 5. 高效并发上传分片（官方推荐的并发模式）
+      const uploadChunksWithConcurrency = async (
+        chunks: { partNumber: number; start: number; end: number; blob: Blob }[], 
+        maxConcurrency: number = MAX_CONCURRENT_UPLOADS
+      ): Promise<void> => {
+        const executing: Promise<any>[] = [];
         
-        const chunkIndex = currentIndex++;
-        const chunk = chunks[chunkIndex];
+        for (const chunk of chunks) {
+          // 创建上传Promise，包含完成后的清理逻辑
+          const promise = uploadChunk(chunk).then(() => {
+            // 从执行队列中移除已完成的Promise
+            const index = executing.indexOf(promise);
+            if (index > -1) {
+              executing.splice(index, 1);
+            }
+          });
+          
+          executing.push(promise);
+          
+          // 当达到最大并发数时，等待任一分片完成
+          if (executing.length >= maxConcurrency) {
+            await Promise.race(executing);
+          }
+        }
         
-        await uploadChunk(chunk);
-        
-        // 继续处理下一个分片
-        return processNextChunk();
+        // 等待所有剩余的分片完成
+        await Promise.all(executing);
       };
 
-      // 启动并发上传
-      for (let i = 0; i < Math.min(MAX_CONCURRENT_UPLOADS, chunks.length); i++) {
-        uploadPromises.push(processNextChunk());
-      }
-
-      // 等待所有分片上传完成
-      await Promise.all(uploadPromises);
+      // 执行并发上传
+      await uploadChunksWithConcurrency(chunks);
 
       // 检查是否有失败的分片
       if (failedParts.length > 0) {
@@ -315,19 +341,22 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
 
       console.log(`所有分片上传完成，开始合并...`);
 
-      // 6. 完成分段上传
+      // 6. 完成分段上传（官方API格式）
       const sortedParts = uploadedParts.sort((a, b) => a.partNumber - b.partNumber);
       
-      const completeResponse = await fetch('/api/upload/multipart/complete', {
+      const completeUrl = new URL('/api/upload/multipart', window.location.origin);
+      completeUrl.searchParams.set('action', 'mpu-complete');
+      completeUrl.searchParams.set('uploadId', uploadId);
+      completeUrl.searchParams.set('key', objectKey);
+      completeUrl.searchParams.set('taskId', taskId);
+      
+      const completeResponse = await fetch(completeUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          taskId,
-          uploadId,
-          objectKey,
-          parts: sortedParts,
+          parts: sortedParts, // 官方格式：只传递parts数组
         }),
       });
 
@@ -336,9 +365,9 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
         throw new Error(errorData.error || '完成分段上传失败');
       }
 
-      const { publicUrl } = await completeResponse.json() as { publicUrl: string };
+      const { publicUrl, etag } = await completeResponse.json() as { publicUrl: string; etag: string };
       
-      console.log('分段上传完全成功:', { publicUrl });
+      console.log('分段上传完全成功:', { publicUrl, etag });
       return publicUrl;
       
     } catch (error) {
