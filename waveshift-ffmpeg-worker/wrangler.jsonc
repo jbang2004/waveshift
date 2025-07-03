@@ -18,9 +18,15 @@
   "migrations": [
     {
       "new_sqlite_classes": [
+        "FFmpegContainerV2"
+      ],
+      "tag": "v2"
+    },
+    {
+      "new_sqlite_classes": [
         "FFmpegContainer"
       ],
-      "tag": "v1"
+      "tag": "v3"
     }
   ],
   "durable_objects": {
