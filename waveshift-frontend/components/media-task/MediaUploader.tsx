@@ -23,6 +23,7 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
     isCreating,
     isUploading,
     uploadProgress,
+    uploadProgressInfo,
     isProcessing,
     progress,
     error,
@@ -186,17 +187,27 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                 <span>
                   状态: {
                     isCreating ? '创建任务中...' :
-                    isUploading ? `上传中... (${uploadProgress}%)` :
+                    isUploading ? `直接上传到R2... (${uploadProgress}%)` :
                     isProcessing ? '处理中...' :
                     task?.status === 'completed' ? '✅ 已完成' :
                     task?.status === 'failed' ? '❌ 失败' :
                     task?.status || '等待中'
                   }
                 </span>
-                {isUploading && uploadProgress > 0 && uploadProgress < 100 && (
-                  <span className="text-blue-600">
-                    上传速度: 计算中...
-                  </span>
+                {isUploading && uploadProgressInfo && (
+                  <div className="text-right">
+                    <div className="text-blue-600">
+                      速度: {uploadProgressInfo.speed > 0 ? `${(uploadProgressInfo.speed / 1024 / 1024).toFixed(1)} MB/s` : '计算中...'}
+                    </div>
+                    {uploadProgressInfo.remainingTime > 0 && uploadProgressInfo.remainingTime < 3600 && (
+                      <div className="text-green-600">
+                        剩余: {Math.round(uploadProgressInfo.remainingTime)}s
+                      </div>
+                    )}
+                    <div className="text-gray-500">
+                      {(uploadProgressInfo.loaded / 1024 / 1024).toFixed(1)} / {(uploadProgressInfo.total / 1024 / 1024).toFixed(1)} MB
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

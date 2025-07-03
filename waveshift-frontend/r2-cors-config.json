@@ -1,0 +1,29 @@
+{
+  "CORSRules": [
+    {
+      "ID": "AllowPresignedUploads",
+      "AllowedHeaders": [
+        "Authorization",
+        "Content-Type",
+        "Content-Length",
+        "X-Amz-*"
+      ],
+      "AllowedMethods": [
+        "GET",
+        "PUT",
+        "POST",
+        "DELETE",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "AllowedOrigins": [
+        "*"
+      ],
+      "ExposeHeaders": [
+        "ETag",
+        "x-amz-request-id"
+      ],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
