@@ -34,7 +34,7 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 			// 3. 调用 FFMPEG 处理 - 发送原始二进制数据
 			const videoBuffer = await originalData.arrayBuffer();
 			
-			const response = await container.fetch(new Request('http://localhost:8080/', {
+			const response = await container.fetch(new Request('https://ffmpeg/', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'video/mp4',
@@ -119,7 +119,7 @@ export default {
 				await container.start();
 				console.log('容器已启动');
 				
-				const response = await container.fetch(new Request('http://localhost:8080/health'));
+				const response = await container.fetch(new Request('https://ffmpeg/health'));
 				console.log(`容器健康检查响应: status=${response.status}, ok=${response.ok}`);
 				
 				const responseText = await response.text();
