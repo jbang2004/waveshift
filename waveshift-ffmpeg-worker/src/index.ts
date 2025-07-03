@@ -25,13 +25,16 @@ export class FFmpegWorker extends WorkerEntrypoint<Env> {
 			
 			console.log(`原始文件读取成功，大小: ${originalData.size} bytes`);
 			
-			// 2. 获取容器实例
+			// 2. 获取容器实例并确保启动
 			const container = await getRandom(this.env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
+			
+			// 确保容器已启动 - 这是关键的修复
+			await container.start();
 			
 			// 3. 调用 FFMPEG 处理 - 发送原始二进制数据
 			const videoBuffer = await originalData.arrayBuffer();
 			
-			const response = await container.fetch(new Request('https://ffmpeg/', {
+			const response = await container.fetch(new Request('http://localhost:8080/', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'video/mp4',
@@ -108,22 +111,37 @@ export default {
 		// 容器状态检查
 		if (url.pathname === '/container-status') {
 			try {
+				console.log('正在获取容器实例...');
 				const container = await getRandom(env.FFMPEG_CONTAINER as any, CONTAINER_INSTANCE_COUNT);
-				const response = await container.fetch(new Request('https://ffmpeg/health'));
+				console.log(`容器实例获取成功: ${container}`);
+				
+				// 确保容器启动
+				await container.start();
+				console.log('容器已启动');
+				
+				const response = await container.fetch(new Request('http://localhost:8080/health'));
+				console.log(`容器健康检查响应: status=${response.status}, ok=${response.ok}`);
+				
+				const responseText = await response.text();
+				console.log(`容器响应内容: ${responseText}`);
 				
 				return new Response(JSON.stringify({
 					worker: 'healthy',
 					container: response.ok ? 'healthy' : 'unhealthy',
-					instance_type: 'standard',  // 从配置中显示
+					container_response: responseText,
+					status_code: response.status,
+					instance_type: 'standard',
 					memory: '4GB'
 				}), {
 					headers: { 'Content-Type': 'application/json' }
 				});
 			} catch (error) {
+				console.error('容器状态检查失败:', error);
 				return new Response(JSON.stringify({
 					worker: 'healthy',
 					container: 'error',
-					error: error instanceof Error ? error.message : 'Unknown error'
+					error: error instanceof Error ? error.message : 'Unknown error',
+					stack: error instanceof Error ? error.stack : undefined
 				}), {
 					status: 500,
 					headers: { 'Content-Type': 'application/json' }
