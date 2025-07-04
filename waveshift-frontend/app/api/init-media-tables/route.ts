@@ -1,14 +1,14 @@
-import { type NextRequest } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { drizzle } from 'drizzle-orm/d1';
-import { mediaTasks, transcriptions, transcriptionSegments } from '@/db/schema-media';
 
-export async function POST(request: NextRequest) {
+interface CloudflareEnv {
+  DB: D1Database;
+}
+
+export async function POST() {
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
-    const db = drizzle(env.DB);
+    const env = context.env as CloudflareEnv;
 
     console.log('开始创建媒体处理相关表...');
 

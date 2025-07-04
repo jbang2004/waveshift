@@ -12,21 +12,7 @@
       "class_name": "FFmpegContainer",
       "image": "./Dockerfile",
       "instance_type": "standard",
-      "max_instances": 5
-    }
-  ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "FFmpegContainerV2"
-      ],
-      "tag": "v2"
-    },
-    {
-      "new_sqlite_classes": [
-        "FFmpegContainer"
-      ],
-      "tag": "v3"
+      "max_instances": 3
     }
   ],
   "durable_objects": {

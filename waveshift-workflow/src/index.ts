@@ -215,6 +215,9 @@ app.get('/api', async (c: Context<{ Bindings: Env }>) => {
 // 注意：前端页面现在直接通过 Cloudflare Workers 静态资源功能提供
 // 无需额外的路由处理，public/index.html 会自动在根路径提供
 
-export default app;
+// 导出 Cloudflare Workers 需要的 fetch handler
+export default {
+	fetch: app.fetch.bind(app),
+};
 
 

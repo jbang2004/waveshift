@@ -5,6 +5,11 @@ import { mediaTasks, type NewMediaTask } from '@/db/schema-media';
 import { verifyAuth } from '@/lib/auth/verify-request';
 import { z } from 'zod';
 
+// 环境变量类型定义
+interface CloudflareEnv {
+  DB: D1Database;
+}
+
 // 文件上传验证模式
 const createWorkflowSchema = z.object({
   fileName: z.string().min(1, 'File name is required'),
@@ -44,7 +49,7 @@ export async function POST(request: NextRequest) {
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as CloudflareEnv;
     
     if (!env.DB) {
       return Response.json({ 

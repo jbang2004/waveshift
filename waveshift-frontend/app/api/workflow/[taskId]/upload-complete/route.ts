@@ -25,7 +25,7 @@ export async function POST(
     }
 
     const { taskId } = params;
-    const { publicUrl } = await request.json() as { publicUrl?: string };
+    await request.json(); // 解析请求体但不使用内容
 
     if (!taskId) {
       return NextResponse.json({ error: '任务ID是必需的' }, { status: 400 });

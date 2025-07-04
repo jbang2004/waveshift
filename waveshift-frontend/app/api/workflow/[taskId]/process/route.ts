@@ -67,6 +67,13 @@ export async function POST(
     // 使用数据库中存储的正确文件路径（已经过清理）
     const fileKey = task.file_path;
     
+    console.log('Calling workflow service with:', {
+      fileKey,
+      fileType: task.file_type || getMimeType(task.file_name || ''),
+      taskId,
+      userId: authResult.user.id
+    });
+    
     // 调用 waveshift-workflow 的 /start 端点（JSON 模式）
     const workflowResponse = await env.WORKFLOW_SERVICE.fetch(
       new Request('https://workflow/start', {
@@ -87,13 +94,17 @@ export async function POST(
       })
     );
     
+    console.log('Workflow response status:', workflowResponse.status);
+    
     if (!workflowResponse.ok) {
       const errorText = await workflowResponse.text();
       console.error('Workflow service error:', errorText);
+      console.error('Workflow response headers:', [...workflowResponse.headers.entries()]);
       throw new Error(`Workflow service returned ${workflowResponse.status}: ${errorText}`);
     }
     
     const workflow = await workflowResponse.json() as { id: string; details: any };
+    console.log('Workflow created successfully:', workflow.id);
     
     // 更新任务状态
     await db.update(mediaTasks)
@@ -113,8 +124,13 @@ export async function POST(
     
   } catch (error) {
     console.error('Error processing media task:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
     return Response.json(
-      { error: 'Failed to process media task' },
+      { 
+        error: 'Failed to process media task',
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }

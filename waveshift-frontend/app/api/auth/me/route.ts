@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     // 获取Cloudflare环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as { JWT_SECRET?: string; AUTH_SECRET?: string };
 
     // 从cookies获取令牌
     const token = request.cookies.get('access_token')?.value;

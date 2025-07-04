@@ -94,8 +94,9 @@ export default function PricingContent() {
     }
   ];
 
-  const handleSelectPlan = (_planTitle: string) => {
+  const handleSelectPlan = (planTitle: string) => {
     // Analytics tracking could go here in production
+    console.log('Selected plan:', planTitle);
     // Handle plan selection logic here
   };
 

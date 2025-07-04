@@ -19,7 +19,7 @@ const presignedUrlSchema = z.object({
 });
 
 // POST 方法：生成预签名URL
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证用户身份
-    const authResult = await verifyAuth(request as any);
+    const authResult = await verifyAuth(req as any);
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ 
         error: '身份验证失败' 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 解析和验证请求参数
-    const body = await request.json();
+    const body = await req.json();
     const validation = presignedUrlSchema.safeParse(body);
     
     if (!validation.success) {
@@ -152,9 +152,9 @@ export async function POST(request: NextRequest) {
 }
 
 // GET 方法：获取预签名URL信息（用于调试和状态检查）
-export async function GET(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(request.url);
+    const url = new URL(req.url);
     const taskId = url.searchParams.get('taskId');
 
     if (!taskId) {
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 验证用户身份
-    const authResult = await verifyAuth(request);
+    const authResult = await verifyAuth(req as any);
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ 
         error: '身份验证失败' 

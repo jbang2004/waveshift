@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { drizzle } from 'drizzle-orm/d1';
+import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import { mediaTasks, transcriptions, transcriptionSegments } from '@/db/schema-media';
 import { eq, and } from 'drizzle-orm';
 import { verifyAuth } from '@/lib/auth/verify-request';
@@ -21,7 +21,7 @@ function getPollingInterval(status: string): number {
 }
 
 // 获取任务基本状态信息（轻量级查询）
-async function getTaskBasicInfo(taskId: string, userId: string, db: any) {
+async function getTaskBasicInfo(taskId: string, userId: string, db: DrizzleD1Database) {
   const [task] = await db.select({
     id: mediaTasks.id,
     status: mediaTasks.status,
@@ -41,7 +41,7 @@ async function getTaskBasicInfo(taskId: string, userId: string, db: any) {
 }
 
 // 获取任务详细信息
-async function getTaskWithDetails(taskId: string, userId: string, db: any, env: any) {
+async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1Database, env: { NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string }) {
   // 获取任务基本信息
   const [task] = await db.select()
     .from(mediaTasks)
@@ -99,7 +99,7 @@ async function getTaskWithDetails(taskId: string, userId: string, db: any, env: 
 }
 
 // 创建智能 SSE 响应
-function createSSEResponse(taskId: string, userId: string, db: any, env: any) {
+function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database, env: { NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string }) {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -177,7 +177,7 @@ export async function GET(
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as { DB: D1Database; NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string };
     const db = drizzle(env.DB);
     
     // 验证用户身份

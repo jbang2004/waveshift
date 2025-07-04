@@ -6,6 +6,13 @@ import { eq } from 'drizzle-orm';
 import { verifyAuth } from '@/lib/auth/verify-request';
 import { z } from 'zod';
 
+// 环境变量类型定义
+interface CloudflareEnv {
+  DB: D1Database;
+  MEDIA_STORAGE: R2Bucket;
+  NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string;
+}
+
 // 上传完成确认接口
 // 用于预签名URL上传完成后，更新数据库状态
 
@@ -23,7 +30,7 @@ export async function POST(request: NextRequest) {
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as CloudflareEnv;
     
     if (!env.DB || !env.MEDIA_STORAGE) {
       return NextResponse.json({ 
@@ -50,7 +57,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const { taskId, objectName, fileSize, etag, uploadTimestamp } = validation.data;
+    const { taskId, objectName, fileSize } = validation.data;
     const db = drizzle(env.DB);
 
     // 验证任务存在且属于当前用户
@@ -120,10 +127,10 @@ export async function POST(request: NextRequest) {
     const publicUrl = `${customDomain}/${objectName}`;
 
     // 更新任务状态为上传完成
-    const updateData: any = {
+    const updateData: Partial<typeof mediaTasks.$inferInsert> = {
       status: 'uploaded',
       progress: 30,
-      file_path: publicUrl, // 使用现有的file_path字段存储公共访问URL
+      file_path: objectName, // 存储相对路径，不是完整URL
       started_at: task.started_at || Date.now(), // 保持started_at不变
     };
 
@@ -143,7 +150,8 @@ export async function POST(request: NextRequest) {
       success: true,
       taskId,
       status: 'uploaded',
-      filePath: publicUrl, // 使用filePath字段名与数据库一致
+      filePath: objectName, // 返回相对路径，前端可自行构建完整URL
+      publicUrl, // 也提供完整URL供前端使用
       objectName,
       message: '上传确认成功，任务状态已更新'
     });
@@ -172,7 +180,7 @@ export async function GET(request: NextRequest) {
 
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as CloudflareEnv;
     
     if (!env.DB || !env.MEDIA_STORAGE) {
       return NextResponse.json({ 

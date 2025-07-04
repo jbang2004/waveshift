@@ -1,23 +1,13 @@
-# 🚀 优化多阶段构建 - 基于 jrottenberg/ffmpeg:7.1-ubuntu2404
-# 构建阶段 - 轻量级Ubuntu构建环境
-FROM ubuntu:24.04 AS builder
+# 🚀 优化多阶段构建 - Alpine构建环境兼容性优化
+# 构建阶段 - Alpine + musl 静态链接
+FROM rust:alpine AS builder
 
-# 设置非交互式安装
-ENV DEBIAN_FRONTEND=noninteractive
-
-# 安装构建依赖 - 最小化构建工具
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    pkg-config \
-    libssl-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# 安装 Rust - 网络优化版本
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+# 安装Alpine构建依赖
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static
 
 # 设置工作目录
 WORKDIR /app
@@ -26,21 +16,28 @@ WORKDIR /app
 COPY separate-container/Cargo.toml separate-container/Cargo.lock ./
 COPY separate-container/src ./src
 
-# 构建 Rust 应用 - Release优化
-RUN cargo build --release --locked
+# 添加musl target并构建静态链接的二进制文件
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target x86_64-unknown-linux-musl --locked
 
-# 🎬 运行阶段 - jrottenberg FFmpeg 7.1 专用镜像
-# 优势: 预编译FFmpeg 7.1, 性能优化, 启动更快
-FROM jrottenberg/ffmpeg:7.1-ubuntu2404
+# 🎬 运行阶段 - Alpine FFmpeg 轻量级镜像
+# 优势: Alpine Linux + FFmpeg，仅106MB，启动更快，更适合云环境
+FROM alfg/ffmpeg
+
+# 安装必要的依赖（在Alpine中）
+RUN apk add --no-cache ca-certificates
 
 # 创建工作目录
 WORKDIR /app
 
-# 从构建阶段复制编译好的二进制文件
-COPY --from=builder /app/target/release/separate-container ./separate-container
+# 从构建阶段复制编译好的二进制文件（musl静态链接）
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/separate-container ./separate-container
 
 # 确保二进制文件可执行
 RUN chmod +x ./separate-container
+
+# 验证FFmpeg是否可用并输出版本信息
+RUN ffmpeg -buildconf
 
 # 暴露端口
 EXPOSE 8080
