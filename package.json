@@ -14,8 +14,7 @@
     "dev:frontend": "cd waveshift-frontend && npm run dev",
     "dev:workflow": "cd waveshift-workflow && npm run dev",
     "dev:ffmpeg": "cd waveshift-ffmpeg-worker && npm run dev",
-    "dev:transcribe": "cd waveshift-transcribe-worker && npm run dev",
-    "status": "node scripts/check-deployment-status.js"
+    "dev:transcribe": "cd waveshift-transcribe-worker && npm run dev"
   },
   "devDependencies": {
     "concurrently": "^7.6.0"

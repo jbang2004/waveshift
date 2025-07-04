@@ -46,3 +46,11 @@ next-env.d.ts
 
 # OS generated files
 Thumbs.db
+
+# Cloudflare Workers 临时文件
+.wrangler/
+worker-configuration.d.ts
+
+# 部署日志
+deploy.log
+*.log

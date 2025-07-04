@@ -342,7 +342,98 @@ wrangler secret put GEMINI_API_KEY
    - 验证所有 R2 相关环境变量
    - 检查 Cloudflare 账户权限
 
-## 部署方式说明
+## 🚀 部署配置指南
+
+### 部署方式优先级
+
+#### **1. GitHub Actions 部署 (推荐)**
+```bash
+# FFmpeg Worker (容器服务)
+npm run deploy:docker
+
+# 所有服务
+gh workflow run "Deploy All WaveShift Services"
+```
+
+#### **2. 本地智能部署**
+```bash
+# 只部署有更改的服务
+npm run deploy:smart
+
+# 强制部署所有服务
+npm run deploy:smart -- --all
+```
+
+#### **3. 单独服务部署**
+```bash
+npm run deploy:frontend     # 前端应用
+npm run deploy:workflow     # 工作流服务
+npm run deploy:ffmpeg       # FFmpeg Worker
+npm run deploy:transcribe   # 转录服务
+```
+
+### ⚠️ 部署顺序 (必须按序执行)
+1. **waveshift-ffmpeg-worker** - 音视频处理服务
+2. **waveshift-transcribe-worker** - AI转录服务
+3. **waveshift-workflow** - 工作流编排服务 (依赖上述两个服务)
+4. **waveshift-frontend** - 前端应用 (依赖工作流服务)
+
+### 环境变量配置
+确保设置以下环境变量或GitHub Secrets：
+```bash
+CLOUDFLARE_API_TOKEN=your-api-token
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+GEMINI_API_KEY=your-gemini-key
+```
+
+### R2 存储配置
+
+#### **CORS 策略配置** (必需 - 支持预签名URL)
+在 Cloudflare Dashboard → R2 → waveshift-media → Settings → CORS policy：
+```json
+[{
+  "AllowedHeaders": [
+    "content-type", "content-length", "authorization",
+    "x-amz-date", "x-amz-content-sha256"
+  ],
+  "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
+  "AllowedOrigins": [
+    "https://waveshift-frontend.jbang20042004.workers.dev",
+    "http://localhost:3001",
+    "http://localhost:3000"
+  ],
+  "ExposeHeaders": ["ETag"],
+  "MaxAgeSeconds": 3600
+}]
+```
+
+#### **公共访问配置**
+1. **启用R2 Public Bucket**：
+   - Cloudflare Dashboard → R2 → waveshift-media → Settings → Public access → Allow Access
+   - 记录公共URL: `https://pub-waveshift-media.r2.dev`
+
+2. **更新环境变量**：
+   ```bash
+   # 在 wrangler.jsonc 中配置
+   "R2_PUBLIC_DOMAIN": "pub-waveshift-media.r2.dev"
+   ```
+
+#### **CORS 常见错误解决**
+- **"No 'Access-Control-Allow-Origin' header"**: 检查 AllowedOrigins 配置
+- **"Request header content-type is not allowed"**: 确保 AllowedHeaders 包含 "content-type"
+- **403 Forbidden**: 等待CORS规则生效(30秒)或检查预签名URL
+
+### 部署验证
+```bash
+# 检查工作流状态
+gh run list --limit 5
+
+# 测试服务健康状态
+curl https://waveshift-ffmpeg-worker.你的账户.workers.dev/health
+
+# 测试R2访问
+curl -I https://pub-waveshift-media.r2.dev/test-file.txt
+```
 
 ### 🚀 GitHub Actions Container 部署 (推荐)
 适用于 **waveshift-ffmpeg-worker** 等需要容器的服务：

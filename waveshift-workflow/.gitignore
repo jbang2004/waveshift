@@ -25,6 +25,7 @@ logs
 
 # TypeScript
 *.tsbuildinfo
+worker-configuration.d.ts
 
 # Rust
 target/
