@@ -41,7 +41,7 @@ async function getTaskBasicInfo(taskId: string, userId: string, db: DrizzleD1Dat
 }
 
 // 获取任务详细信息
-async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1Database, env: { NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string }) {
+async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1Database, env: { R2_PUBLIC_DOMAIN?: string }) {
   // 获取任务基本信息
   const [task] = await db.select()
     .from(mediaTasks)
@@ -78,16 +78,16 @@ async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1D
   // 生成视频URL
   let videoUrl = null;
   if (task.file_path) {
-    // 使用自定义域名（官方推荐的生产环境方案）
-    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN || 'https://media.waveshift.net';
-    videoUrl = `${customDomain}/${task.file_path}`;
+    // 使用R2公共域名（官方推荐的生产环境方案）
+    const r2PublicDomain = env.R2_PUBLIC_DOMAIN || 'media.waveshift.net';
+    videoUrl = `https://${r2PublicDomain}/${task.file_path}`;
     
-    console.log('生成自定义域名视频URL:', {
+    console.log('生成R2公共域名视频URL:', {
       taskId: task.id,
       filePath: task.file_path,
-      customDomain,
+      r2PublicDomain,
       videoUrl,
-      note: '使用自定义域名访问（官方推荐的生产环境方案）'
+      note: '使用R2公共域名访问（官方推荐的生产环境方案）'
     });
   }
   
@@ -99,7 +99,7 @@ async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1D
 }
 
 // 创建智能 SSE 响应
-function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database, env: { NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string }) {
+function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database, env: { R2_PUBLIC_DOMAIN?: string }) {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -177,7 +177,7 @@ export async function GET(
   try {
     // 获取 Cloudflare 环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as { DB: D1Database; NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string };
+    const env = context.env as { DB: D1Database; R2_PUBLIC_DOMAIN?: string };
     const db = drizzle(env.DB);
     
     // 验证用户身份

@@ -1,5 +1,6 @@
 import { Hono, Context } from 'hono';
 import { Env, ProcessingOptionsType } from './types/env.d';
+import { buildMediaUrl } from './utils/url-utils';
 
 // 应用常量
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -28,9 +29,9 @@ app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
 			return c.json({ error: 'Task not found' }, 404);
 		}
 		
-		// 根据数据库中的路径生成完整URL
-		const videoUrl = taskResult.video_path ? `https://${c.env.R2_PUBLIC_DOMAIN}/${taskResult.video_path}` : null;
-		const audioUrl = taskResult.audio_path ? `https://${c.env.R2_PUBLIC_DOMAIN}/${taskResult.audio_path}` : null;
+		// 使用统一的URL工具根据数据库中的路径生成完整URL
+		const videoUrl = taskResult.video_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.video_path) : null;
+		const audioUrl = taskResult.audio_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.audio_path) : null;
 		
 		// 检查文件是否存在（使用数据库中的路径）
 		const videoExists = taskResult.video_path ? await c.env.MEDIA_STORAGE.head(taskResult.video_path) : null;

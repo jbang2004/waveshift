@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { Env, SepTransWorkflowParams } from './types/env.d';
 import { updateMediaTaskStatus, updateMediaTaskUrls, createTranscription, storeTranscriptionResult, completeMediaTask, setMediaTaskError } from './utils/database';
+import { createMediaUrlManager } from './utils/url-utils';
 
 export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowParams> {
 	async run(event: WorkflowEvent<SepTransWorkflowParams>, step: WorkflowStep) {
@@ -36,13 +37,13 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					videoOutputKey
 				});
 				
-				// 生成公共 URL (业务逻辑)
-				const publicDomain = env.R2_PUBLIC_DOMAIN;
-				const audioUrl = `https://${publicDomain}/${audioOutputKey}`;
-				const videoUrl = `https://${publicDomain}/${videoOutputKey}`;
+				// 使用统一的URL管理器生成公共URL
+				const urlManager = createMediaUrlManager(env.R2_PUBLIC_DOMAIN);
+				const audioUrl = urlManager.buildPublicUrl(audioOutputKey);
+				const videoUrl = urlManager.buildPublicUrl(videoOutputKey);
 				
-				// 更新数据库 (业务数据)
-				await updateMediaTaskUrls(env, taskId, audioUrl, videoUrl);
+				// 更新数据库 (存储相对路径而非完整URL)
+				await updateMediaTaskUrls(env, taskId, audioOutputKey, videoOutputKey);
 				await updateMediaTaskStatus(env, taskId, 'transcribing', 40);
 				
 				console.log(`音视频分离完成 - 视频: ${videoUrl}, 音频: ${audioUrl}`);

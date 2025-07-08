@@ -48,7 +48,7 @@
   "vars": {
     "NEXTJS_ENV": "production",
     "NODE_ENV": "production",
-    "NEXT_PUBLIC_R2_CUSTOM_DOMAIN": "https://media.waveshift.net",
+    "R2_PUBLIC_DOMAIN": "media.waveshift.net",
     "NEXT_PUBLIC_R2_BUCKET_NAME": "waveshift-media",
     "R2_BUCKET_NAME": "waveshift-media",
     "R2_ENDPOINT": "https://1298fa35ac940c688dc1b6d8f5eead72.r2.cloudflarestorage.com",

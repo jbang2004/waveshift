@@ -10,7 +10,7 @@ import { z } from 'zod';
 interface CloudflareEnv {
   DB: D1Database;
   MEDIA_STORAGE: R2Bucket;
-  NEXT_PUBLIC_R2_CUSTOM_DOMAIN?: string;
+  R2_PUBLIC_DOMAIN?: string;
 }
 
 // 上传完成确认接口
@@ -123,8 +123,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 生成公共访问URL
-    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN || `https://media.waveshift.net`;
-    const publicUrl = `${customDomain}/${objectName}`;
+    const domain = env.R2_PUBLIC_DOMAIN || 'media.waveshift.net';
+    const publicUrl = `https://${domain}/${objectName}`;
 
     // 更新任务状态为上传完成
     const updateData: Partial<typeof mediaTasks.$inferInsert> = {

@@ -1,6 +1,6 @@
 import { integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
 
-// 用户表
+// 用户表 - 认证系统核心表
 export const users = sqliteTable('users', {
   id: text('id').notNull().primaryKey(),
   name: text('name'),
@@ -12,7 +12,11 @@ export const users = sqliteTable('users', {
   updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
 });
 
-// 业务数据表
+/*
+// ===== 已废弃的表（已被新的媒体表架构替代）=====
+// 这些表定义保留用于参考，但不再使用
+// 新的媒体处理功能请使用 schema-media.ts 中的表
+
 export const videos = sqliteTable('videos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -47,4 +51,5 @@ export const sentences = sqliteTable('sentences', {
   speakerId: integer('speakerId'),
   createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
-}); 
+});
+*/ 

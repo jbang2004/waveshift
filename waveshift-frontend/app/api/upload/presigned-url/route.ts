@@ -120,10 +120,10 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(mediaTasks.id, taskId));
 
-    // 生成公共访问URL（可选择使用自定义域名或R2原生域名）
-    const customDomain = env.NEXT_PUBLIC_R2_CUSTOM_DOMAIN;
-    const publicUrl = customDomain 
-      ? `${customDomain}/${objectName}`
+    // 生成公共访问URL（使用R2公共域名）
+    const r2PublicDomain = env.R2_PUBLIC_DOMAIN;
+    const publicUrl = r2PublicDomain 
+      ? `https://${r2PublicDomain}/${objectName}`
       : `https://${bucketName}.${accountId}.r2.cloudflarestorage.com/${objectName}`;
 
     return NextResponse.json({

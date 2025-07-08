@@ -46,19 +46,19 @@ export async function updateMediaTaskStatus(
 }
 
 /**
- * 更新媒体任务的音视频 URL
+ * 更新媒体任务的音视频路径（相对路径）
  */
 export async function updateMediaTaskUrls(
   env: Env,
   taskId: string,
-  audioUrl: string,
-  videoUrl: string
+  audioPath: string,
+  videoPath: string
 ): Promise<void> {
   await env.DB.prepare(`
     UPDATE media_tasks 
     SET audio_path = ?, video_path = ?
     WHERE id = ?
-  `).bind(audioUrl, videoUrl, taskId).run();
+  `).bind(audioPath, videoPath, taskId).run();
 }
 
 /**

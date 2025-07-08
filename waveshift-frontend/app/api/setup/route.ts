@@ -28,63 +28,93 @@ export async function GET() {
         );
       `).run();
 
-      // 视频表
+      // 媒体任务表 - 统一管理所有媒体处理任务
       await env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS videos (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          userId TEXT NOT NULL,
-          fileName TEXT NOT NULL,
-          storagePath TEXT NOT NULL,
-          bucketName TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS media_tasks (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
           status TEXT NOT NULL,
-          videoWidth INTEGER,
-          videoHeight INTEGER,
-          createdAt INTEGER NOT NULL,
-          updatedAt INTEGER NOT NULL,
-          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+          progress INTEGER DEFAULT 0,
+          file_path TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          file_type TEXT NOT NULL,
+          target_language TEXT DEFAULT 'chinese',
+          translation_style TEXT DEFAULT 'normal',
+          audio_path TEXT,
+          video_path TEXT,
+          workflow_id TEXT,
+          workflow_status TEXT,
+          transcription_id TEXT,
+          error_message TEXT,
+          error_details TEXT,
+          created_at INTEGER NOT NULL,
+          started_at INTEGER,
+          completed_at INTEGER,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
       `).run();
 
-      // 任务表
+      // 转录任务表
       await env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS tasks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          taskId TEXT NOT NULL UNIQUE,
-          videoId INTEGER NOT NULL,
-          status TEXT NOT NULL,
-          hlsPlaylistUrl TEXT,
-          createdAt INTEGER NOT NULL,
-          updatedAt INTEGER NOT NULL,
-          FOREIGN KEY (videoId) REFERENCES videos(id) ON DELETE CASCADE
+        CREATE TABLE IF NOT EXISTS transcriptions (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL,
+          source_language TEXT,
+          target_language TEXT NOT NULL,
+          style TEXT NOT NULL,
+          model_name TEXT,
+          model_provider TEXT DEFAULT 'gemini',
+          total_segments INTEGER NOT NULL,
+          duration_ms INTEGER,
+          created_at INTEGER NOT NULL,
+          processing_time_ms INTEGER,
+          FOREIGN KEY (task_id) REFERENCES media_tasks(id) ON DELETE CASCADE
         );
       `).run();
 
-      // 字幕表
+      // 转录片段表
       await env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS sentences (
+        CREATE TABLE IF NOT EXISTS transcription_segments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          taskId TEXT NOT NULL,
-          sentenceIndex INTEGER NOT NULL,
-          rawText TEXT NOT NULL,
-          transText TEXT,
-          startMs INTEGER NOT NULL,
-          endMs INTEGER NOT NULL,
-          speakerId INTEGER,
-          createdAt INTEGER NOT NULL,
-          updatedAt INTEGER NOT NULL,
-          FOREIGN KEY (taskId) REFERENCES tasks(taskId) ON DELETE CASCADE
+          transcription_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL,
+          start_ms INTEGER NOT NULL,
+          end_ms INTEGER NOT NULL,
+          content_type TEXT NOT NULL,
+          speaker TEXT,
+          original_text TEXT NOT NULL,
+          translated_text TEXT NOT NULL,
+          FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
         );
       `).run();
 
-      console.log('Created JWT authentication database tables');
+      // 创建索引
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_media_user_status ON media_tasks(user_id, status);
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_media_created ON media_tasks(created_at);
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_transcriptions_task ON transcriptions(task_id);
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_segments_lookup ON transcription_segments(transcription_id, sequence);
+      `).run();
+
+      console.log('Created database tables successfully');
     } catch (error) {
       console.log('Error creating database tables:', error);
     }
 
     return NextResponse.json({ 
-      message: 'Database migration completed successfully (JWT Session)',
-      tables: ['users', 'videos', 'tasks', 'sentences'],
-      note: 'Using JWT sessions - no session tables needed'
+      message: 'Database migration completed successfully',
+      tables: ['users', 'media_tasks', 'transcriptions', 'transcription_segments'],
+      note: 'Modern architecture with unified media processing tables'
     });
   } catch (error) {
     console.error('Migration error:', error);

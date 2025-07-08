@@ -1,6 +1,6 @@
 // 媒体处理相关的数据库表结构
 import { integer, text, sqliteTable, index } from 'drizzle-orm/sqlite-core';
-import { users, videos } from './schema';
+import { users } from './schema';
 
 // 媒体任务表 - 统一管理所有媒体处理任务（优化后的结构）
 export const mediaTasks = sqliteTable('media_tasks', {
