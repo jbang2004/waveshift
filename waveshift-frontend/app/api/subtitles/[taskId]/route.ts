@@ -11,8 +11,13 @@ export async function GET(
 ) {
   try {
     // 验证用户身份
-    const authResult = await verifyAuth(request);
+    const authResult = await verifyAuth(request as NextRequest);
     if (!authResult.authenticated || !authResult.user) {
+      console.error('Subtitles API auth failed:', { 
+        authenticated: authResult.authenticated,
+        hasUser: !!authResult.user,
+        hasCookie: !!request.cookies.get('access_token')
+      });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

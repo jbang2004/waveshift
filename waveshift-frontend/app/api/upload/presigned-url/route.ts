@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const { taskId, objectName, fileSize, mimeType, expiresIn } = validation.data;
+    const { taskId, objectName, mimeType, expiresIn } = validation.data;
     const db = drizzle(env.DB);
 
     // 验证任务存在且属于当前用户

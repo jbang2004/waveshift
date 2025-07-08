@@ -4,9 +4,11 @@ import ClientProviders from "./client-providers";
 import { cookies } from "next/headers";
 import jwt from "@tsndr/cloudflare-worker-jwt";
 
-const defaultUrl = process.env.VERCEL_URL
+const defaultUrl = process.env.PRIMARY_DOMAIN 
+  ? process.env.PRIMARY_DOMAIN
+  : process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
-  : "http://localhost:3000";
+  : "https://waveshift-frontend.jbang20042004.workers.dev";
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),

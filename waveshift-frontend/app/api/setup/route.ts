@@ -1,12 +1,12 @@
 // Database setup for JWT-based authentication
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // 获取Cloudflare环境
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as { DB: D1Database; [key: string]: unknown };
     
     if (!env.DB) {
       throw new Error('D1 Database binding not found');
@@ -86,20 +86,20 @@ export async function GET(request: NextRequest) {
       tables: ['users', 'videos', 'tasks', 'sentences'],
       note: 'Using JWT sessions - no session tables needed'
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Migration error:', error);
     return NextResponse.json({ 
       error: 'Migration failed', 
-      details: error.message 
+      details: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }
 }
 
 // 获取数据库状态的辅助端点
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     const context = await getCloudflareContext({ async: true });
-    const env = context.env as any;
+    const env = context.env as { DB: D1Database; [key: string]: unknown };
     
     if (!env.DB) {
       throw new Error('D1 Database binding not found');
@@ -121,16 +121,16 @@ export async function POST(request: NextRequest) {
     `).first();
 
     return NextResponse.json({
-      existingTables: tables.results.map((t: any) => t.name),
+      existingTables: (tables.results as { name: string }[]).map(t => t.name),
       userTableStructure: userTableInfo.results,
       userCount: userCount?.count || 0,
       sessionStrategy: 'JWT'
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Database check error:', error);
     return NextResponse.json({ 
       error: 'Database check failed', 
-      details: error.message 
+      details: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }
 }
