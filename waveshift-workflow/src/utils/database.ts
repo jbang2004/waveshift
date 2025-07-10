@@ -114,7 +114,7 @@ export async function storeTranscriptionResult(
   
   // 更新转录任务的总片段数和处理时间
   const transcription = await env.DB.prepare(`SELECT created_at FROM transcriptions WHERE id = ?`).bind(transcriptionId).first();
-  const processingTime = transcription ? now - transcription.created_at : 0;
+  const processingTime = transcription ? now - (transcription.created_at as number) : 0;
   
   await env.DB.prepare(`
     UPDATE transcriptions 
@@ -195,6 +195,78 @@ export async function getTranscriptionResult(
   }));
   
   return { task, transcription, segments };
+}
+
+/**
+ * 更新转录记录的总片段数和处理时间
+ * 
+ * @param env 环境变量
+ * @param transcriptionId 转录ID
+ * @param totalSegments 总片段数
+ */
+export async function updateTranscriptionTotalSegments(
+  env: Env, 
+  transcriptionId: string, 
+  totalSegments: number
+): Promise<void> {
+  try {
+    const processingEndTime = Date.now();
+    
+    await env.DB.prepare(`
+      UPDATE transcriptions 
+      SET total_segments = ?, processing_time_ms = ?
+      WHERE id = ?
+    `).bind(totalSegments, processingEndTime, transcriptionId).run();
+    
+    console.log(`✅ 更新转录记录: ID=${transcriptionId}, 总片段数=${totalSegments}`);
+  } catch (error) {
+    console.error(`❌ 更新转录记录失败: ID=${transcriptionId}, 错误:`, error);
+    throw error;
+  }
+}
+
+/**
+ * 存储单个转录片段到数据库
+ * 
+ * @param env 环境变量
+ * @param transcriptionId 转录ID
+ * @param segment 转录片段
+ * @param finalSequence 最终序列号
+ */
+export async function storeTranscriptionSegment(
+  env: Env,
+  transcriptionId: string,
+  segment: {
+    start_ms: number;
+    end_ms: number;
+    content_type: string;
+    speaker: string;
+    original_text: string;
+    translated_text: string;
+  },
+  finalSequence: number
+): Promise<void> {
+  try {
+    await env.DB.prepare(`
+      INSERT INTO transcription_segments 
+      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      transcriptionId,
+      finalSequence,
+      segment.start_ms,
+      segment.end_ms,
+      segment.content_type,
+      segment.speaker,
+      segment.original_text,
+      segment.translated_text
+    ).run();
+    
+    console.log(`✅ 存储片段到D1: sequence=${finalSequence}, 说话人=${segment.speaker}, 时长=${segment.end_ms - segment.start_ms}ms`);
+  } catch (error) {
+    console.error(`❌ 存储片段失败: sequence=${finalSequence}, 错误:`, error);
+    throw error;
+  }
 }
 
 /**

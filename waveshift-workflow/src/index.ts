@@ -30,12 +30,12 @@ app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
 		}
 		
 		// 使用统一的URL工具根据数据库中的路径生成完整URL
-		const videoUrl = taskResult.video_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.video_path) : null;
-		const audioUrl = taskResult.audio_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.audio_path) : null;
+		const videoUrl = taskResult.video_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.video_path as string) : null;
+		const audioUrl = taskResult.audio_path ? buildMediaUrl(c.env.R2_PUBLIC_DOMAIN, taskResult.audio_path as string) : null;
 		
 		// 检查文件是否存在（使用数据库中的路径）
-		const videoExists = taskResult.video_path ? await c.env.MEDIA_STORAGE.head(taskResult.video_path) : null;
-		const audioExists = taskResult.audio_path ? await c.env.MEDIA_STORAGE.head(taskResult.audio_path) : null;
+		const videoExists = taskResult.video_path ? await c.env.MEDIA_STORAGE.head(taskResult.video_path as string) : null;
+		const audioExists = taskResult.audio_path ? await c.env.MEDIA_STORAGE.head(taskResult.audio_path as string) : null;
 		
 		if ((!videoExists && taskResult.video_path) || (!audioExists && taskResult.audio_path)) {
 			return c.json({ error: 'Files not found' }, 404);
