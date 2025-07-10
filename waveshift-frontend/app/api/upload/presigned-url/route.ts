@@ -92,10 +92,11 @@ export async function POST(req: NextRequest) {
       region: 'auto',
     });
 
-    const r2Url = `https://${accountId}.r2.cloudflarestorage.com/${bucketName}/${objectName}`;
-    const urlWithExpiry = `${r2Url}?X-Amz-Expires=${expiresIn}`;
+    // ✅ 正确的URL构建方式 - 使用URL API设置参数
+    const url = new URL(`https://${accountId}.r2.cloudflarestorage.com/${bucketName}/${objectName}`);
+    url.searchParams.set('X-Amz-Expires', expiresIn.toString());
     
-    const request = new Request(urlWithExpiry, { 
+    const request = new Request(url, { 
       method: 'PUT',
       headers: { 
         'Content-Type': mimeType || 'application/octet-stream'
