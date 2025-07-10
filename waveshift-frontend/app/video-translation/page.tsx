@@ -51,16 +51,11 @@ export default function VideoTranslation() {
   const [targetLanguage, setTargetLanguage] = useState<string>("en");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [displaySubtitlesPanel, setDisplaySubtitlesPanel] = useState<boolean>(false);
-  const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [translationCompleted, setTranslationCompleted] = useState<boolean>(false);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const subtitlesContainerRef = useRef<HTMLDivElement>(null);
-
-  // NextAuth.js 用户会话管理
+  const [combinedSubtitles, setCombinedSubtitles] = useState<any[]>([]);
 
   const {
+    task,
     isUploading,
     uploadProgress,
     uploadComplete,
@@ -69,9 +64,19 @@ export default function VideoTranslation() {
     uploadError,
     processingError,
     taskId,
+    // 🔥 统一的实时字幕状态
+    realtimeSubtitles,
+    isTranscribing,
+    showSkeletons: workflowShowSkeletons,
     createAndUploadTask,
     resetWorkflow: resetVideoUploadHookState
   } = useMediaWorkflow();
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const subtitlesContainerRef = useRef<HTMLDivElement>(null);
+
+  // NextAuth.js 用户会话管理
 
   const {
     isPlaying,
@@ -105,6 +110,28 @@ export default function VideoTranslation() {
     loadCondition: processingComplete && !!videoPreviewUrl && displaySubtitlesPanel,
   });
 
+  // 🔥 移除：useRealtimeSubtitles hook，现在统一使用useMediaWorkflow
+
+  // 🔥 简化：统一字幕管理逻辑
+  useEffect(() => {
+    if (isTranscribing && realtimeSubtitles.length > 0) {
+      // 转录中，使用实时字幕
+      setCombinedSubtitles(realtimeSubtitles);
+    } else if (task?.status === 'completed' && subtitles.length > 0) {
+      // 转录完成且有传统字幕，使用传统字幕
+      setCombinedSubtitles(subtitles);
+    } else if (task?.status === 'completed' && realtimeSubtitles.length > 0) {
+      // 转录完成但传统字幕未加载时，保留实时字幕
+      setCombinedSubtitles(realtimeSubtitles);
+    } else if (subtitles.length > 0) {
+      // 其他情况有传统字幕就使用
+      setCombinedSubtitles(subtitles);
+    } else if (!isTranscribing) {
+      // 只在非转录状态且无字幕时才清空
+      setCombinedSubtitles([]);
+    }
+  }, [isTranscribing, realtimeSubtitles, subtitles, task?.status]);
+
   useEffect(() => {
     if (uploadError) {
       alert(T.alertMessages.uploadFailed(uploadError.message));
@@ -123,17 +150,25 @@ export default function VideoTranslation() {
     }
   }, [videoPreviewUrl]);
   
+  // 🔥 优化：在transcribing状态就显示字幕面板，提供更好的用户体验
   useEffect(() => {
-    if (processingComplete && !displaySubtitlesPanel) {
+    if (task?.status === 'transcribing' && !displaySubtitlesPanel) {
       setDisplaySubtitlesPanel(true);
+      // 🔥 移除：isTranscribing和showSkeletons现在由useMediaWorkflow统一管理
+    } else if (processingComplete) {
+      if (!displaySubtitlesPanel) {
+        setDisplaySubtitlesPanel(true);
+      }
+      // 🔥 移除：状态现在由useMediaWorkflow统一管理
     }
-  }, [processingComplete, displaySubtitlesPanel]);
+  }, [task?.status, processingComplete, displaySubtitlesPanel]);
 
   useEffect(() => {
-    if (processingComplete && displaySubtitlesPanel && taskId) {
+    // 在转录状态或完成后获取字幕
+    if (displaySubtitlesPanel && taskId && (task?.status === 'transcribing' || processingComplete)) {
       fetchSubtitles(taskId, targetLanguage);
     }
-  }, [processingComplete, displaySubtitlesPanel, taskId, targetLanguage, fetchSubtitles]);
+  }, [task?.status, processingComplete, displaySubtitlesPanel, taskId, targetLanguage, fetchSubtitles]);
 
   // 简化的加载状态检查  
   if (isLoading) {
@@ -279,7 +314,7 @@ export default function VideoTranslation() {
             isGenerating={isGenerating}
             canPlay={canPlay}
             hlsPlaylistUrl={hlsPlaylistUrl}
-            isTranslating={isTranslating}
+            isTranslating={isTranscribing}
             translationCompleted={translationCompleted}
             isVideoCompleted={isVideoCompleted}
           />
@@ -301,13 +336,14 @@ export default function VideoTranslation() {
             >
               <SubtitlesPanel
                 theme={resolvedTheme}
-                subtitles={subtitles}
+                subtitles={combinedSubtitles}
                 editingSubtitleId={editingSubtitleId}
                 targetLanguage={targetLanguage}
                 translations={T}
                 isMobile={isMobile}
                 isLoading={isLoadingSubtitles}
                 error={subtitleError}
+                showSkeletons={workflowShowSkeletons}
                 getLanguageLabel={getLanguageLabel}
                 jumpToTime={jumpToTime}
                 updateSubtitleTranslation={updateSubtitleTranslation}
@@ -318,11 +354,9 @@ export default function VideoTranslation() {
                 subtitlesContainerRef={subtitlesContainerRef as React.RefObject<HTMLDivElement>}
                 currentTaskId={taskId || ""}
                 onTranslationStart={() => {
-                  setIsTranslating(true);
                   setTranslationCompleted(false);
                 }}
                 onTranslationComplete={() => {
-                  setIsTranslating(false);
                   setTranslationCompleted(true);
                 }}
               />

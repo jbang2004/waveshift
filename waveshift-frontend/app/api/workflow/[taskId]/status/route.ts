@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import { mediaTasks, transcriptions, transcriptionSegments } from '@/db/schema-media';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, gt } from 'drizzle-orm';
 import { verifyAuth } from '@/lib/auth/verify-request';
 
 
@@ -38,6 +38,26 @@ async function getTaskBasicInfo(taskId: string, userId: string, db: DrizzleD1Dat
     .limit(1);
     
   return task;
+}
+
+// 获取新的转录片段（增量查询）
+async function getNewTranscriptionSegments(
+  db: DrizzleD1Database, 
+  transcriptionId: string, 
+  lastSequence: number
+) {
+  if (!transcriptionId) return [];
+  
+  const newSegments = await db.select()
+    .from(transcriptionSegments)
+    .where(and(
+      eq(transcriptionSegments.transcription_id, transcriptionId),
+      gt(transcriptionSegments.sequence, lastSequence)
+    ))
+    .orderBy(transcriptionSegments.sequence)
+    .limit(5); // 限制每次推送最多5个片段
+    
+  return newSegments;
 }
 
 // 获取任务详细信息
@@ -106,6 +126,7 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
   
   let lastStatus = '';
   let lastProgress = 0;
+  let lastSegmentSequence = 0; // 跟踪已推送的片段序号
   
   const poll = async () => {
     try {
@@ -113,10 +134,13 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
       const basicTask = await getTaskBasicInfo(taskId, userId, db);
       
       if (!basicTask) {
+        // 🔥 修复：不立即关闭连接，继续轮询等待task创建
         await writer.write(encoder.encode(
-          `data: ${JSON.stringify({ error: 'Task not found' })}\n\n`
+          `data: ${JSON.stringify({ error: 'Task not found', status: 'waiting' })}\n\n`
         ));
-        await writer.close();
+        
+        // 等待更长时间后继续轮询，而不是关闭连接
+        setTimeout(poll, 5000);
         return;
       }
       
@@ -134,6 +158,42 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
       await writer.write(encoder.encode(
         `data: ${JSON.stringify(taskData)}\n\n`
       ));
+      
+      // 🔥 核心增强：推送新的转录片段
+      if (basicTask.status === 'transcribing' && basicTask.transcription_id) {
+        const newSegments = await getNewTranscriptionSegments(
+          db, 
+          basicTask.transcription_id, 
+          lastSegmentSequence
+        );
+        
+        if (newSegments.length > 0) {
+          // 转换为前端需要的格式
+          const formattedSegments = newSegments.map((segment) => ({
+            id: segment.sequence, // ✅ 修复：使用数据库真实sequence作为ID
+            taskId: taskId,
+            sentenceIndex: segment.sequence,
+            startMs: segment.start_ms,
+            endMs: segment.end_ms,
+            rawText: segment.original_text,
+            transText: segment.translated_text,
+            speakerId: segment.speaker,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }));
+          
+          // 推送新片段
+          await writer.write(encoder.encode(
+            `data: ${JSON.stringify({
+              type: 'new_segments',
+              segments: formattedSegments
+            })}\n\n`
+          ));
+          
+          // 更新最后推送的序号
+          lastSegmentSequence = Math.max(...newSegments.map(s => s.sequence));
+        }
+      }
       
       lastStatus = basicTask.status;
       lastProgress = basicTask.progress || 0;

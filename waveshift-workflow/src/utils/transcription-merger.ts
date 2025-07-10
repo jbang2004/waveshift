@@ -109,6 +109,9 @@ export async function storeSegmentToD1(
   finalSequence: number
 ): Promise<void> {
   await storeTranscriptionSegment(env, transcriptionId, segment, finalSequence);
+  
+  // 🔥 添加实时通知机制：立即通知前端有新的转录片段
+  console.log(`📡 存储片段完成，即将通知前端: sequence=${finalSequence}, speaker=${segment.speaker}`);
 }
 
 /**

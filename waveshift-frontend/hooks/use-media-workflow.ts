@@ -7,6 +7,25 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import type { MediaTask, Transcription, TranscriptionSegment } from '@/db/schema-media';
 
+// 实时字幕类型定义（从use-realtime-subtitles.ts迁移）
+export interface Subtitle {
+  id: string;
+  startTime: string;
+  endTime: string;
+  text: string;
+  translation: string;
+  speaker: string;
+}
+
+// 时间格式转换函数
+const formatTime = (ms: number): string => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+
 // 媒体任务类型，包含转录信息
 export interface MediaTaskWithTranscription extends MediaTask {
   transcription?: Transcription & {
@@ -40,6 +59,11 @@ interface MediaWorkflowState {
   isProcessing: boolean;
   processingComplete: boolean;
   progress: number;
+  
+  // 🔥 新增：实时字幕状态
+  realtimeSubtitles: Subtitle[];
+  isTranscribing: boolean;
+  showSkeletons: boolean;
   
   // 结果状态
   videoPreviewUrl: string | null;
@@ -79,6 +103,12 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
   const [processingComplete, setProcessingComplete] = useState(false);
   const [progress, setProgress] = useState(0);
   
+  // 🔥 新增：实时字幕状态
+  const [realtimeSubtitles, setRealtimeSubtitles] = useState<Subtitle[]>([]);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showSkeletons, setShowSkeletons] = useState(false);
+  const [processedSegmentIds, setProcessedSegmentIds] = useState<Set<number>>(new Set());
+  
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   
   const [error, setError] = useState<Error | null>(null);
@@ -109,6 +139,12 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
     setProcessingComplete(false);
     setProgress(0);
     
+    // 🔥 重置实时字幕状态
+    setRealtimeSubtitles([]);
+    setIsTranscribing(false);
+    setShowSkeletons(false);
+    setProcessedSegmentIds(new Set());
+    
     setVideoPreviewUrl(null);
     
     setError(null);
@@ -116,42 +152,88 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
     setProcessingError(null);
   }, [cleanupEventSource]);
 
-  const startStatusMonitoring = useCallback((taskId: string) => {
+  const startStatusMonitoring = useCallback((taskId: string, skipTranscribingPhase: boolean = false) => {
     if (!user) return;
 
     const es = new EventSource(`/api/workflow/${taskId}/status`);
 
     es.onmessage = (event) => {
       try {
-        const update = JSON.parse(event.data);
+        const data = JSON.parse(event.data);
         
-        if (update.error) {
-          setError(new Error(update.error));
+        // 🔥 处理new_segments事件（实时字幕）
+        if (data.type === 'new_segments' && data.segments) {
+          const newSubtitles: Subtitle[] = data.segments
+            .filter((segment: any) => !processedSegmentIds.has(segment.sentenceIndex))
+            .map((segment: any) => {
+              const subtitle: Subtitle = {
+                id: segment.sentenceIndex.toString(),
+                startTime: formatTime(segment.startMs),
+                endTime: formatTime(segment.endMs),
+                text: segment.rawText,
+                translation: segment.transText || "",
+                speaker: `说话人 ${segment.speakerId}`,
+              };
+              
+              return subtitle;
+            });
+
+          if (newSubtitles.length > 0) {
+            // 更新处理过的segment IDs
+            setProcessedSegmentIds(prev => {
+              const newSet = new Set(prev);
+              newSubtitles.forEach(sub => newSet.add(parseInt(sub.id)));
+              return newSet;
+            });
+            
+            // 添加新字幕并排序
+            setRealtimeSubtitles(prev => {
+              const combined = [...prev, ...newSubtitles];
+              return combined.sort((a, b) => parseInt(a.id) - parseInt(b.id));
+            });
+            
+            console.log(`📨 收到${newSubtitles.length}个新字幕片段`);
+          }
+          return; // new_segments事件不需要处理其他逻辑
+        }
+        
+        // 🔥 处理任务状态更新
+        if (data.error) {
+          setError(new Error(data.error));
           setIsProcessing(false);
           es.close();
           return;
         }
 
-        setTask(update);
-        setProgress(update.progress || 0);
+        setTask(data);
+        setProgress(data.progress || 0);
 
-        if (update.status === 'completed') {
+        if (data.status === 'transcribing') {
+          // 🔥 进入转录阶段：显示字幕组件和骨架屏
+          setIsTranscribing(true);
+          setShowSkeletons(true);
+          setIsProcessing(true);
+        } else if (data.status === 'completed') {
+          // 🔥 转录完成：结束进度条，保持字幕显示
+          setIsTranscribing(false);
+          setShowSkeletons(false);
           setIsProcessing(false);
           setProcessingComplete(true);
           setProgress(100);
           
-          if (update.videoUrl) {
-            setVideoPreviewUrl(update.videoUrl);
+          if (data.videoUrl) {
+            setVideoPreviewUrl(data.videoUrl);
           }
           
           es.close();
-        } else if (update.status === 'failed') {
-          setError(new Error(update.error || 'Task failed'));
+        } else if (data.status === 'failed') {
+          setError(new Error(data.error || 'Task failed'));
+          setIsTranscribing(false);
           setIsProcessing(false);
           es.close();
-        } else if (update.status === 'separating' || update.status === 'transcribing' || update.status === 'processing') {
+        } else if (data.status === 'separating' || data.status === 'processing') {
           setIsProcessing(true);
-        } else if (update.status === 'uploaded') {
+        } else if (data.status === 'uploaded') {
           setIsUploading(false);
           setUploadComplete(true);
         }
@@ -390,6 +472,10 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
     isProcessing,
     processingComplete,
     progress,
+    // 🔥 导出实时字幕状态
+    realtimeSubtitles,
+    isTranscribing,
+    showSkeletons,
     videoPreviewUrl,
     error,
     uploadError,
