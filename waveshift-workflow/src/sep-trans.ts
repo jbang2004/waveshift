@@ -202,44 +202,10 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				console.log(`SepTransWorkflow 成功完成: ${taskId}`);
 			});
 			
-			// 步骤5: 通知 Frontend 完成（如果有 FRONTEND_SERVICE binding）
-			await step.do("notify-frontend", async () => {
-				if (env.FRONTEND_SERVICE) {
-					console.log(`步骤5: 通知 Frontend 任务完成 ${taskId}`);
-					
-					const result = {
-						videoUrl,
-						audioUrl,
-						transcription: {
-							targetLanguage: options.targetLanguage,
-							style: options.style || 'normal',
-							model: transcriptionResult.metadata?.model,
-							segments: transcriptionResult.segments,
-							metadata: transcriptionResult.metadata,
-						},
-					};
-					
-					try {
-						await env.FRONTEND_SERVICE.fetch(
-							new Request('https://frontend/api/workflow/callback', {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									'x-workflow-auth': env.WORKFLOW_CALLBACK_SECRET || 'default-secret',
-								},
-								body: JSON.stringify({
-									taskId,
-									status: 'completed',
-									result,
-								}),
-							})
-						);
-						console.log(`Frontend 通知发送成功: ${taskId}`);
-					} catch (callbackError) {
-						console.error(`Frontend 通知失败: ${taskId}`, callbackError);
-						// 回调失败不影响主流程
-					}
-				}
+			// 步骤5: 完成日志
+			await step.do("complete-logging", async () => {
+				console.log(`步骤5: 工作流完成 ${taskId}`);
+				console.log(`📊 结果统计: 视频=${videoUrl}, 音频=${audioUrl}, 转录片段=${transcriptionResult.totalSegments}`);
 			});
 			
 		} catch (error: any) {
@@ -250,34 +216,12 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				await setMediaTaskError(env, taskId, error.message, error.stack);
 			});
 			
-			// 通知 Frontend 失败（如果有 FRONTEND_SERVICE binding）
-			await step.do("notify-frontend-error", async () => {
-				if (env.FRONTEND_SERVICE) {
-					console.log(`通知 Frontend 任务失败 ${taskId}`);
-					
-					try {
-						await env.FRONTEND_SERVICE.fetch(
-							new Request('https://frontend/api/workflow/callback', {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									'x-workflow-auth': env.WORKFLOW_CALLBACK_SECRET || 'default-secret',
-								},
-								body: JSON.stringify({
-									taskId,
-									status: 'failed',
-									error: {
-										message: error.message,
-										stack: error.stack,
-									},
-								}),
-							})
-						);
-						console.log(`Frontend 错误通知发送成功: ${taskId}`);
-					} catch (callbackError) {
-						console.error(`Frontend 错误通知失败: ${taskId}`, callbackError);
-					}
-				}
+			// 记录错误信息
+			await step.do("log-error", async () => {
+				console.error(`❌ 工作流失败详情 ${taskId}:`, {
+					message: error.message,
+					stack: error.stack?.substring(0, 500)
+				});
 			});
 			
 			throw error;

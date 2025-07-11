@@ -18,7 +18,6 @@ export interface CloudflareEnv {
   AUTH_SECRET?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
-  WORKFLOW_CALLBACK_SECRET?: string;
   [key: string]: any;
 }
 
@@ -99,17 +98,6 @@ export async function verifyAuthentication(request: NextRequest, env: Cloudflare
   };
 }
 
-/**
- * 验证工作流回调认证
- */
-export function verifyWorkflowCallback(request: NextRequest, env: CloudflareEnv) {
-  const authHeader = request.headers.get('x-workflow-auth');
-  const expectedSecret = env.WORKFLOW_CALLBACK_SECRET || 'waveshift-callback-secret-2025';
-  
-  if (authHeader !== expectedSecret) {
-    throw new ApiError(401, 'Unauthorized workflow callback');
-  }
-}
 
 /**
  * 统一的 API 错误响应格式
@@ -197,25 +185,6 @@ export function withAuth<T = any>(
   };
 }
 
-/**
- * 工作流回调 API 路由包装器
- */
-export function withWorkflowCallback<T = any>(
-  handler: (request: NextRequest, params?: any) => Promise<T>
-) {
-  return async (request: NextRequest, context?: RouteContext) => {
-    try {
-      const { env } = await getCloudflareDB();
-      verifyWorkflowCallback(request, env);
-      const result = await handler(request, context?.params);
-      return createSuccessResponse(result);
-    } catch (error) {
-      console.error('API Workflow Error:', error);
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      return createErrorResponse(error as Error, isDevelopment);
-    }
-  };
-}
 
 /**
  * 验证请求数据

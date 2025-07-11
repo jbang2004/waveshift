@@ -1,25 +1,5 @@
 import { Env } from '../types/env.d';
 
-// 基于前端 schema-media.ts 的类型定义
-export interface TranscriptionSegment {
-  sequence: number;
-  start: string;
-  end: string;
-  contentType: 'speech' | 'singing' | 'non_speech_human_vocalizations' | 'non_human_sounds';
-  speaker: string;
-  original: string;
-  translation: string;
-}
-
-export interface TranscriptionMetadata {
-  fileName?: string;
-  fileSize?: number;
-  mimeType?: string;
-  startTime: string;
-  model?: string;
-  duration?: number;
-  totalSegments: number;
-}
 
 /**
  * 更新媒体任务状态
@@ -69,7 +49,11 @@ export async function createTranscription(
   taskId: string,
   targetLanguage: string,
   style: string,
-  metadata?: Partial<TranscriptionMetadata>
+  metadata?: {
+    startTime?: string;
+    duration?: number;
+    totalSegments?: number;
+  }
 ): Promise<string> {
   const transcriptionId = crypto.randomUUID();
   const now = Date.now();
@@ -98,48 +82,6 @@ export async function createTranscription(
   return transcriptionId;
 }
 
-/**
- * 存储转录结果到前端表结构
- */
-export async function storeTranscriptionResult(
-  env: Env,
-  transcriptionId: string,
-  transcriptionData: {
-    segments: any[];
-    metadata?: TranscriptionMetadata;
-    totalSegments: number;
-  }
-): Promise<void> {
-  const now = Date.now();
-  
-  // 更新转录任务的总片段数和处理时间
-  const transcription = await env.DB.prepare(`SELECT created_at FROM transcriptions WHERE id = ?`).bind(transcriptionId).first();
-  const processingTime = transcription ? now - (transcription.created_at as number) : 0;
-  
-  await env.DB.prepare(`
-    UPDATE transcriptions 
-    SET total_segments = ?, processing_time_ms = ?
-    WHERE id = ?
-  `).bind(transcriptionData.totalSegments, processingTime, transcriptionId).run();
-  
-  // 批量插入转录片段
-  for (const segment of transcriptionData.segments) {
-    await env.DB.prepare(`
-      INSERT INTO transcription_segments 
-      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      transcriptionId,
-      segment.sequence,
-      parseInt(segment.start_ms) || 0,
-      parseInt(segment.end_ms) || 0,
-      segment.content_type || 'speech',
-      segment.speaker,
-      segment.original_text,
-      segment.translated_text
-    ).run();
-  }
-}
 
 /**
  * 获取媒体任务信息
@@ -155,47 +97,6 @@ export async function getMediaTask(
   return result;
 }
 
-/**
- * 获取转录结果
- */
-export async function getTranscriptionResult(
-  env: Env,
-  taskId: string
-): Promise<{ task: any; transcription: any; segments: TranscriptionSegment[] } | null> {
-  // 获取媒体任务信息
-  const task = await env.DB.prepare(`
-    SELECT * FROM media_tasks WHERE id = ?
-  `).bind(taskId).first();
-  
-  if (!task || !task.transcription_id) return null;
-  
-  // 获取转录任务信息
-  const transcription = await env.DB.prepare(`
-    SELECT * FROM transcriptions WHERE id = ?
-  `).bind(task.transcription_id).first();
-  
-  if (!transcription) return null;
-  
-  // 获取所有转录片段
-  const segmentsResult = await env.DB.prepare(`
-    SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text
-    FROM transcription_segments 
-    WHERE transcription_id = ? 
-    ORDER BY sequence ASC
-  `).bind(task.transcription_id).all();
-  
-  const segments = (segmentsResult.results || []).map((row: any) => ({
-    sequence: row.sequence as number,
-    start: String(row.start_ms),
-    end: String(row.end_ms),
-    contentType: row.content_type as 'speech' | 'singing' | 'non_speech_human_vocalizations' | 'non_human_sounds',
-    speaker: row.speaker as string,
-    original: row.original_text as string,
-    translation: row.translated_text as string
-  }));
-  
-  return { task, transcription, segments };
-}
 
 /**
  * 更新转录记录的总片段数和处理时间

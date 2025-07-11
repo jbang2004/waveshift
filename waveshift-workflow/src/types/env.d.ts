@@ -26,14 +26,10 @@ interface Env {
 	// 服务绑定
 	FFMPEG_SERVICE: FFmpegService;
 	TRANSCRIBE_SERVICE: Fetcher;
-	FRONTEND_SERVICE?: Fetcher; // 新增：Frontend Service Binding (可选)
 	
 	// 其他绑定
 	SEP_TRANS_PROCESSOR: WorkflowBinding;
 	DB: D1Database;
-	
-	// 环境变量
-	WORKFLOW_CALLBACK_SECRET?: string; // 新增：回调认证密钥
 }
 
 // Zod 验证模式
@@ -46,31 +42,6 @@ export const ProcessingOptions = z.object({
 
 export type ProcessingOptionsType = z.infer<typeof ProcessingOptions>;
 
-// 转录任务状态
-type TranscriptionStatus = 'processing' | 'completed' | 'failed';
-
-// 转录任务数据结构
-interface TranscriptionTask {
-	id: string;
-	status: TranscriptionStatus;
-	audio_url: string;
-	video_url: string;
-	created_at: string;
-	updated_at: string;
-	completed_at?: string;
-}
-
-// 转录结果数据结构
-interface TranscriptionResult {
-	task_id: string;
-	result: any;
-	metadata: {
-		audioUrl: string;
-		duration?: string;
-		segmentCount?: number;
-		processedAt: string;
-	};
-}
 
 // Workflow 参数
 interface SepTransWorkflowParams {
@@ -83,8 +54,5 @@ interface SepTransWorkflowParams {
 
 export { 
 	Env, 
-	TranscriptionStatus, 
-	TranscriptionTask, 
-	TranscriptionResult, 
 	SepTransWorkflowParams 
 };
