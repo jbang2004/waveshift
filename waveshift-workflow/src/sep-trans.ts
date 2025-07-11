@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { Env, SepTransWorkflowParams } from './types/env.d';
-import { updateMediaTaskStatus, updateMediaTaskUrls, createTranscription, completeMediaTask, setMediaTaskError, updateTranscriptionTotalSegments } from './utils/database';
+import { updateMediaTaskStatus, updateMediaTaskUrls, createTranscription, completeMediaTask, setMediaTaskError, updateTranscriptionTotalSegments, markLastTranscriptionSegment } from './utils/database';
 import { createMediaUrlManager } from './utils/url-utils';
 import { 
   initRealtimeMergeState, 
@@ -169,14 +169,20 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				// 6. 处理最后一个待合并的组
 				if (mergeState.currentGroup) {
 					const isFirst = !mergeState.isFirstSegmentStored;
-					await storeSegmentToD1(env, mergeState.transcriptionId, mergeState.currentGroup, ++mergeState.lastStoredSequence, isFirst, true);
-					console.log(`💾 存储最后一个合并组: sequence=${mergeState.lastStoredSequence}, is_first=${isFirst}, is_last=true`);
+					await storeSegmentToD1(env, mergeState.transcriptionId, mergeState.currentGroup, ++mergeState.lastStoredSequence, isFirst);
+					console.log(`💾 存储最后一个合并组: sequence=${mergeState.lastStoredSequence}, is_first=${isFirst}`);
 				}
 
-				// 7. 更新转录记录的总片段数
+				// 7. 标记最后一个片段为 is_last=true
+				if (mergeState.lastStoredSequence > 0) {
+					await markLastTranscriptionSegment(env, transcriptionId);
+					console.log(`🏁 标记最后片段完成: transcription_id=${transcriptionId}`);
+				}
+
+				// 8. 更新转录记录的总片段数
 				await updateTranscriptionTotalSegments(env, transcriptionId, mergeState.lastStoredSequence);
 				
-				// 8. 更新任务状态
+				// 9. 更新任务状态
 				await updateMediaTaskStatus(env, taskId, 'completed', 90);
 				
 				console.log(`✅ 实时转录完成: ID=${transcriptionId}, 最终片段数=${mergeState.lastStoredSequence}`);

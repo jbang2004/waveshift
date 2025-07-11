@@ -105,26 +105,24 @@ export function mergeSegments(
  * @param segment 要存储的片段
  * @param finalSequence 最终序列号
  * @param isFirst 是否是第一个片段
- * @param isLast 是否是最后一个片段
  */
 export async function storeSegmentToD1(
   env: Env, 
   transcriptionId: string, 
   segment: TranscriptionSegment,
   finalSequence: number,
-  isFirst: boolean = false,
-  isLast: boolean = false
+  isFirst: boolean = false
 ): Promise<void> {
   const segmentWithFlags = {
     ...segment,
     is_first: isFirst,
-    is_last: isLast
+    is_last: false  // 初始时所有片段都不是最后一个，稍后统一更新
   };
   
   await storeTranscriptionSegment(env, transcriptionId, segmentWithFlags, finalSequence);
   
   // 🔥 添加实时通知机制：立即通知前端有新的转录片段
-  console.log(`📡 存储片段完成，即将通知前端: sequence=${finalSequence}, speaker=${segment.speaker}, is_first=${isFirst}, is_last=${isLast}`);
+  console.log(`📡 存储片段完成，即将通知前端: sequence=${finalSequence}, speaker=${segment.speaker}, is_first=${isFirst}`);
 }
 
 /**
@@ -149,7 +147,7 @@ export async function processSegmentRealtime(
     // 如果有待合并的组，先存储
     if (state.currentGroup) {
       const isFirst = !state.isFirstSegmentStored;
-      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst, false);
+      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst);
       state.currentGroup = null;
       if (isFirst) {
         state.isFirstSegmentStored = true;
@@ -176,7 +174,7 @@ export async function processSegmentRealtime(
     } else {
       // 无法合并，存储当前组并开始新组
       const isFirst = !state.isFirstSegmentStored;
-      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst, false);
+      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst);
       state.currentGroup = { ...segment };
       if (isFirst) {
         state.isFirstSegmentStored = true;

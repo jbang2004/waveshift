@@ -208,3 +208,33 @@ export async function setMediaTaskError(
     WHERE id = ?
   `).bind(error, errorDetails || null, taskId).run();
 }
+
+/**
+ * 标记转录的最后一个片段
+ * 
+ * @param env 环境变量
+ * @param transcriptionId 转录ID
+ */
+export async function markLastTranscriptionSegment(
+  env: Env,
+  transcriptionId: string
+): Promise<void> {
+  try {
+    // 更新最后一个片段的 is_last 标记
+    const result = await env.DB.prepare(`
+      UPDATE transcription_segments 
+      SET is_last = 1 
+      WHERE transcription_id = ? 
+      AND sequence = (
+        SELECT MAX(sequence) 
+        FROM transcription_segments 
+        WHERE transcription_id = ?
+      )
+    `).bind(transcriptionId, transcriptionId).run();
+    
+    console.log(`✅ 标记最后片段完成: transcription_id=${transcriptionId}, 更新行数=${result.changes}`);
+  } catch (error) {
+    console.error(`❌ 标记最后片段失败: transcription_id=${transcriptionId}, 错误:`, error);
+    throw error;
+  }
+}

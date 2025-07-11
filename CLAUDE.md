@@ -124,6 +124,8 @@ wrangler secret put GEMINI_API_KEY
 - **gemini-transcribe-worker/src/gemini-client.ts**: Gemini API 客户端，支持流式响应
 - **seprate_worker/src/index.ts**: Wifski Worker 入口点，处理路由和容器管理
 - **seprate_worker/wifski-container/src/main.rs**: Rust 服务器，执行 FFMPEG 命令
+- **waveshift-workflow/src/utils/transcription-merger.ts**: 转录片段实时合并和标记逻辑
+- **waveshift-workflow/src/utils/database.ts**: 数据库操作，包含 is_first/is_last 标记函数
 
 ## 技术细节
 
@@ -133,6 +135,16 @@ wrangler secret put GEMINI_API_KEY
 - **文件大小限制**: 最大 100MB
 - **并发控制**: 通过 `MAX_CONCURRENT_REQUESTS` 环境变量配置
 - **支持的翻译**: 中英文转录和翻译，支持普通和古典翻译风格
+
+### 转录片段标记系统 ⭐ **新增功能**
+- **实时合并**: 根据说话人、时间间隔、片段长度智能合并转录片段
+- **开始标记**: `is_first=1` 标记音频的第一个有效语音片段
+- **结束标记**: `is_last=1` 使用延迟更新策略确保准确标记最后一个片段
+- **标记逻辑**: 
+  1. 存储阶段：所有片段 `is_last=0`
+  2. 完成阶段：SQL查询最大序号并更新 `is_last=1`
+  3. 确保每个转录只有一个开始和一个结束片段
+- **应用场景**: 视频预览、摘要生成、循环播放、分段导出
 
 ### Wifski 音视频分离
 - **FFMPEG 命令**:
