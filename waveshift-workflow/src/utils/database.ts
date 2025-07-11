@@ -144,14 +144,16 @@ export async function storeTranscriptionSegment(
     speaker: string;
     original_text: string;
     translated_text: string;
+    is_first?: boolean;
+    is_last?: boolean;
   },
   finalSequence: number
 ): Promise<void> {
   try {
     await env.DB.prepare(`
       INSERT INTO transcription_segments 
-      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text, is_first, is_last) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       transcriptionId,
       finalSequence,
@@ -160,10 +162,12 @@ export async function storeTranscriptionSegment(
       segment.content_type,
       segment.speaker,
       segment.original_text,
-      segment.translated_text
+      segment.translated_text,
+      segment.is_first ? 1 : 0,
+      segment.is_last ? 1 : 0
     ).run();
     
-    console.log(`✅ 存储片段到D1: sequence=${finalSequence}, 说话人=${segment.speaker}, 时长=${segment.end_ms - segment.start_ms}ms`);
+    console.log(`✅ 存储片段到D1: sequence=${finalSequence}, 说话人=${segment.speaker}, 时长=${segment.end_ms - segment.start_ms}ms, is_first=${segment.is_first}, is_last=${segment.is_last}`);
   } catch (error) {
     console.error(`❌ 存储片段失败: sequence=${finalSequence}, 错误:`, error);
     throw error;

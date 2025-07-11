@@ -82,6 +82,10 @@ export const transcriptionSegments = sqliteTable('transcription_segments', {
   // 文本
   original_text: text('original_text').notNull(), // 原始语言内容
   translated_text: text('translated_text').notNull(), // 翻译后的内容
+  
+  // 标记字段（使用INTEGER模拟布尔值：0=false, 1=true）
+  is_first: integer('is_first').notNull().default(0), // 是否是音频的第一个片段
+  is_last: integer('is_last').notNull().default(0), // 是否是音频的最后一个片段
 });
 
 // 添加索引到表定义中

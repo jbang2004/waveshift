@@ -168,8 +168,9 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 
 				// 6. 处理最后一个待合并的组
 				if (mergeState.currentGroup) {
-					await storeSegmentToD1(env, mergeState.transcriptionId, mergeState.currentGroup, ++mergeState.lastStoredSequence);
-					console.log(`💾 存储最后一个合并组: sequence=${mergeState.lastStoredSequence}`);
+					const isFirst = !mergeState.isFirstSegmentStored;
+					await storeSegmentToD1(env, mergeState.transcriptionId, mergeState.currentGroup, ++mergeState.lastStoredSequence, isFirst, true);
+					console.log(`💾 存储最后一个合并组: sequence=${mergeState.lastStoredSequence}, is_first=${isFirst}, is_last=true`);
 				}
 
 				// 7. 更新转录记录的总片段数

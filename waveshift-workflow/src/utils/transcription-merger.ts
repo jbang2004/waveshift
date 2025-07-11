@@ -20,6 +20,8 @@ export interface TranscriptionSegment {
   speaker: string;
   original_text: string;
   translated_text: string;
+  is_first?: boolean; // 是否是音频的第一个片段
+  is_last?: boolean; // 是否是音频的最后一个片段
 }
 
 // 实时合并状态管理
@@ -28,6 +30,7 @@ export interface RealtimeMergeState {
   currentGroup: TranscriptionSegment | null;  // 当前待合并的片段组
   lastStoredSequence: number;  // 已存储的序列号
   targetLanguage: string;
+  isFirstSegmentStored: boolean;  // 是否已存储第一个片段
 }
 
 /**
@@ -101,17 +104,27 @@ export function mergeSegments(
  * @param transcriptionId 转录ID
  * @param segment 要存储的片段
  * @param finalSequence 最终序列号
+ * @param isFirst 是否是第一个片段
+ * @param isLast 是否是最后一个片段
  */
 export async function storeSegmentToD1(
   env: Env, 
   transcriptionId: string, 
   segment: TranscriptionSegment,
-  finalSequence: number
+  finalSequence: number,
+  isFirst: boolean = false,
+  isLast: boolean = false
 ): Promise<void> {
-  await storeTranscriptionSegment(env, transcriptionId, segment, finalSequence);
+  const segmentWithFlags = {
+    ...segment,
+    is_first: isFirst,
+    is_last: isLast
+  };
+  
+  await storeTranscriptionSegment(env, transcriptionId, segmentWithFlags, finalSequence);
   
   // 🔥 添加实时通知机制：立即通知前端有新的转录片段
-  console.log(`📡 存储片段完成，即将通知前端: sequence=${finalSequence}, speaker=${segment.speaker}`);
+  console.log(`📡 存储片段完成，即将通知前端: sequence=${finalSequence}, speaker=${segment.speaker}, is_first=${isFirst}, is_last=${isLast}`);
 }
 
 /**
@@ -135,8 +148,12 @@ export async function processSegmentRealtime(
   if (segment.content_type !== 'speech') {
     // 如果有待合并的组，先存储
     if (state.currentGroup) {
-      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence);
+      const isFirst = !state.isFirstSegmentStored;
+      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst, false);
       state.currentGroup = null;
+      if (isFirst) {
+        state.isFirstSegmentStored = true;
+      }
     }
     
     console.log(`⏭️  跳过非speech片段: type=${segment.content_type}, speaker=${segment.speaker}`);
@@ -158,8 +175,12 @@ export async function processSegmentRealtime(
       console.log(`🔗 合并片段: ${state.currentGroup.sequence} + ${segment.sequence}, 时长: ${beforeMerge}ms → ${afterMerge}ms`);
     } else {
       // 无法合并，存储当前组并开始新组
-      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence);
+      const isFirst = !state.isFirstSegmentStored;
+      await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst, false);
       state.currentGroup = { ...segment };
+      if (isFirst) {
+        state.isFirstSegmentStored = true;
+      }
       
       console.log(`💾 存储组并开始新组: 说话人=${segment.speaker}, 已存储序列=${state.lastStoredSequence}`);
     }
@@ -179,6 +200,7 @@ export function initRealtimeMergeState(transcriptionId: string, targetLanguage: 
     transcriptionId,
     currentGroup: null,
     lastStoredSequence: 0,
-    targetLanguage
+    targetLanguage,
+    isFirstSegmentStored: false
   };
 }
