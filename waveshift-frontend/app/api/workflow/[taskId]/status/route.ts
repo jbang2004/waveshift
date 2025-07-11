@@ -60,6 +60,38 @@ async function getNewTranscriptionSegments(
   return newSegments;
 }
 
+// 🔥 新增：检查所有片段是否已推送完成
+async function checkSegmentsComplete(
+  db: DrizzleD1Database,
+  transcriptionId: string,
+  lastPushedSequence: number
+): Promise<{ complete: boolean; pushed: number; total: number }> {
+  if (!transcriptionId) {
+    return { complete: false, pushed: 0, total: 0 };
+  }
+  
+  // 获取转录任务的总片段数
+  const [transcription] = await db.select({
+    total_segments: transcriptions.total_segments,
+  })
+    .from(transcriptions)
+    .where(eq(transcriptions.id, transcriptionId))
+    .limit(1);
+  
+  if (!transcription) {
+    return { complete: false, pushed: 0, total: 0 };
+  }
+  
+  const totalSegments = transcription.total_segments;
+  
+  // 🔥 关键判断：已推送序号 >= 总片段数
+  return {
+    complete: lastPushedSequence >= totalSegments,
+    pushed: lastPushedSequence,
+    total: totalSegments
+  };
+}
+
 // 获取任务详细信息
 async function getTaskWithDetails(taskId: string, userId: string, db: DrizzleD1Database, env: { R2_PUBLIC_DOMAIN?: string }) {
   // 获取任务基本信息
@@ -127,6 +159,7 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
   let lastStatus = '';
   let lastProgress = 0;
   let lastSegmentSequence = 0; // 跟踪已推送的片段序号
+  let segmentsCompleteSent = false; // 防止重复发送完成信号
   
   const poll = async () => {
     try {
@@ -160,7 +193,8 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
       ));
       
       // 🔥 核心增强：推送新的转录片段
-      if (basicTask.status === 'transcribing' && basicTask.transcription_id) {
+      // 修复：在transcribing状态或刚完成时都要检查未推送的片段
+      if ((basicTask.status === 'transcribing' || basicTask.status === 'completed') && basicTask.transcription_id) {
         const newSegments = await getNewTranscriptionSegments(
           db, 
           basicTask.transcription_id, 
@@ -192,6 +226,33 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
           
           // 更新最后推送的序号
           lastSegmentSequence = Math.max(...newSegments.map(s => s.sequence));
+          
+          console.log(`📨 推送${newSegments.length}个新字幕片段 (状态: ${basicTask.status}, 最新序号: ${lastSegmentSequence})`);
+        }
+        
+        // 🔥 准确的完成状态检查
+        if (!segmentsCompleteSent && basicTask.status === 'completed') {
+          const segmentStatus = await checkSegmentsComplete(
+            db, 
+            basicTask.transcription_id, 
+            lastSegmentSequence
+          );
+          
+          console.log(`🔍 片段完成状态检查: 已推送 ${segmentStatus.pushed}/${segmentStatus.total}, 完成: ${segmentStatus.complete}`);
+          
+          if (segmentStatus.complete) {
+            await writer.write(encoder.encode(
+              `data: ${JSON.stringify({
+                type: 'segments_complete',
+                message: 'All segments have been sent',
+                pushedSegments: segmentStatus.pushed,
+                totalSegments: segmentStatus.total
+              })}\n\n`
+            ));
+            
+            segmentsCompleteSent = true;
+            console.log(`✅ 发送字幕完成信号 (${segmentStatus.pushed}/${segmentStatus.total})`);
+          }
         }
       }
       
@@ -202,7 +263,16 @@ function createSSEResponse(taskId: string, userId: string, db: DrizzleD1Database
       const newInterval = getPollingInterval(basicTask.status);
       
       if (newInterval === 0) {
-        // 任务完成，停止轮询
+        // 🔥 任务完成时的优雅关闭
+        if (basicTask.status === 'completed' && !segmentsCompleteSent) {
+          console.log('⚠️  任务完成但未发送完成信号，等待下轮轮询检查');
+          // 给一次机会进行最终的片段推送检查
+          setTimeout(poll, 1000);
+          return;
+        }
+        
+        // 任务完成且已发送完成信号，停止轮询
+        console.log('🔚 任务完成，停止轮询');
         await writer.close();
         return;
       }

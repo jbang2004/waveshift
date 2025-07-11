@@ -119,6 +119,10 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
 
   const cleanupEventSource = useCallback(() => {
     if (eventSource) {
+      // 清除可能的超时定时器
+      if ((eventSource as any).completionTimeoutId) {
+        clearTimeout((eventSource as any).completionTimeoutId);
+      }
       eventSource.close();
       setEventSource(null);
     }
@@ -197,10 +201,25 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
           return; // new_segments事件不需要处理其他逻辑
         }
         
+        // 🔥 处理字幕完成信号
+        if (data.type === 'segments_complete') {
+          console.log('📨 收到字幕完成信号，关闭连接');
+          // 清除超时定时器
+          if ((es as any).completionTimeoutId) {
+            clearTimeout((es as any).completionTimeoutId);
+          }
+          es.close();
+          return;
+        }
+        
         // 🔥 处理任务状态更新
         if (data.error) {
           setError(new Error(data.error));
           setIsProcessing(false);
+          // 清除超时定时器
+          if ((es as any).completionTimeoutId) {
+            clearTimeout((es as any).completionTimeoutId);
+          }
           es.close();
           return;
         }
@@ -225,11 +244,23 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
             setVideoPreviewUrl(data.videoUrl);
           }
           
-          es.close();
+          // 🔥 优雅关闭：等待服务器发送segments_complete信号
+          // 同时设置超时兜底机制，防止服务器未发送完成信号
+          const timeoutId = setTimeout(() => {
+            console.warn('⚠️  未收到完成信号，5秒后自动关闭连接');
+            es.close();
+          }, 5000);
+          
+          // 存储超时ID，以便在收到完成信号时清除
+          (es as any).completionTimeoutId = timeoutId;
         } else if (data.status === 'failed') {
           setError(new Error(data.error || 'Task failed'));
           setIsTranscribing(false);
           setIsProcessing(false);
+          // 清除超时定时器
+          if ((es as any).completionTimeoutId) {
+            clearTimeout((es as any).completionTimeoutId);
+          }
           es.close();
         } else if (data.status === 'separating' || data.status === 'processing') {
           setIsProcessing(true);
@@ -246,6 +277,10 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
       console.error('EventSource error:', err);
       setError(new Error('Connection error'));
       setIsProcessing(false);
+      // 清除超时定时器
+      if ((es as any).completionTimeoutId) {
+        clearTimeout((es as any).completionTimeoutId);
+      }
       es.close();
     };
 
