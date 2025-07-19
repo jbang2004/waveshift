@@ -211,16 +211,23 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					return { success: false, message: '没有转录数据' };
 				}
 				
-				// 2. 转换数据格式
+				// 2. 直接传递毫秒值，避免冗余转换
 				const transcripts = transcriptionData.results.map((row: any) => ({
 					sequence: row.sequence,
-					start: `${Math.floor(row.start_ms / 60000)}m${Math.floor((row.start_ms % 60000) / 1000)}s${row.start_ms % 1000}ms`,
-					end: `${Math.floor(row.end_ms / 60000)}m${Math.floor((row.end_ms % 60000) / 1000)}s${row.end_ms % 1000}ms`,
+					startMs: row.start_ms,  // 直接使用毫秒
+					endMs: row.end_ms,      // 直接使用毫秒
 					speaker: row.speaker,
 					original: row.original_text,
 					translation: row.translated_text,
 					content_type: row.content_type
 				}));
+				
+				console.log(`🎯 转录数据样本 (前3条):`, transcripts.slice(0, 3).map(t => ({
+					sequence: t.sequence,
+					timeRange: `${t.startMs}-${t.endMs}ms (${t.endMs - t.startMs}ms)`,
+					speaker: t.speaker,
+					text: t.original.substring(0, 30) + '...'
+				})));
 				
 				console.log(`准备切分音频: 共 ${transcripts.length} 个转录片段`);
 				

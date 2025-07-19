@@ -32,8 +32,8 @@ app = FastAPI(title="Audio Segment Container")
 # 数据模型
 class TranscriptItem(BaseModel):
     sequence: int
-    start: str  # "1m23s456ms"
-    end: str
+    startMs: int  # 直接使用毫秒值
+    endMs: int    # 直接使用毫秒值
     speaker: str
     original: str
     translation: Optional[str] = None
@@ -80,48 +80,6 @@ class AudioSegmenter:
         self.padding_ms = padding_ms
         self.logger = logger
         
-    def _time_str_to_ms(self, time_str: str) -> int:
-        """时间字符串转毫秒"""
-        # 支持多种时间格式
-        self.logger.debug(f"解析时间字符串: {time_str}")
-        
-        # 格式1: "1m23s456ms" 
-        match = re.match(r'(\d+)m(\d+)s(\d+)ms', time_str)
-        if match:
-            m, s, ms = map(int, match.groups())
-            result = m * 60 * 1000 + s * 1000 + ms
-            self.logger.debug(f"  匹配格式1: {m}m{s}s{ms}ms = {result}ms")
-            return result
-        
-        # 格式2: "83.456s" (秒.毫秒)
-        match = re.match(r'(\d+)\.(\d+)s', time_str)
-        if match:
-            seconds, milliseconds = match.groups()
-            # 处理小数点后的毫秒部分（可能是1-3位）
-            ms_str = milliseconds.ljust(3, '0')[:3]  # 补齐或截取到3位
-            result = int(seconds) * 1000 + int(ms_str)
-            self.logger.debug(f"  匹配格式2: {seconds}.{milliseconds}s = {result}ms")
-            return result
-        
-        # 格式3: "83s" (纯秒)
-        match = re.match(r'(\d+)s', time_str)
-        if match:
-            seconds = int(match.group(1))
-            result = seconds * 1000
-            self.logger.debug(f"  匹配格式3: {seconds}s = {result}ms")
-            return result
-            
-        # 格式4: 纯数字，假设是秒
-        try:
-            float_seconds = float(time_str)
-            result = int(float_seconds * 1000)
-            self.logger.debug(f"  匹配格式4: {float_seconds} = {result}ms")
-            return result
-        except ValueError:
-            pass
-        
-        self.logger.warning(f"无法解析时间格式: {time_str}")
-        return 0
     
     def _ms_to_time_str(self, ms: int) -> str:
         """毫秒转时间字符串"""
@@ -134,19 +92,26 @@ class AudioSegmenter:
         """根据转录数据创建音频切片计划"""
         self.logger.info(f"🎬 开始处理 {len(transcripts)} 个转录项")
         
+        # 分析时间戳范围
+        speech_items = [t for t in transcripts if t.content_type == 'speech']
+        if speech_items:
+            min_time = min(t.startMs for t in speech_items)
+            max_time = max(t.endMs for t in speech_items)
+            self.logger.info(f"📊 转录时间戳范围: {min_time}ms - {max_time}ms ({(max_time-min_time)/1000:.1f}秒)")
+        
         # 预处理：只处理speech类型的内容
         sentences = []
         for i, item in enumerate(transcripts):
             self.logger.debug(f"转录项 {i}: sequence={item.sequence}, type={item.content_type}, "
-                            f"start='{item.start}', end='{item.end}', speaker='{item.speaker}', "
-                            f"text='{item.original[:50]}...'")
+                            f"time={item.startMs}-{item.endMs}ms ({item.endMs-item.startMs}ms), "
+                            f"speaker='{item.speaker}', text='{item.original[:50]}...'")
             
             if item.content_type != 'speech':
                 self.logger.debug(f"  跳过非语音内容: {item.content_type}")
                 continue
             
-            start_ms = self._time_str_to_ms(item.start)
-            end_ms = self._time_str_to_ms(item.end)
+            start_ms = item.startMs
+            end_ms = item.endMs
             
             if start_ms >= end_ms:
                 self.logger.warning(f"  时间范围无效: start={start_ms}ms >= end={end_ms}ms，跳过")
@@ -309,7 +274,35 @@ class AudioSegmenter:
             duration_str = audio_info['format']['duration']
             total_duration_ms = int(float(duration_str) * 1000)
             
-            self.logger.info(f"音频文件信息: 时长={total_duration_ms/1000:.1f}秒, 格式={audio_info['format']['format_name']}")
+            # 获取转录时间戳范围用于时间轴验证
+            speech_transcripts = [t for t in clips_library.values() if t.get('sentences')]
+            if speech_transcripts:
+                all_segments = []
+                for clip_info in speech_transcripts:
+                    all_segments.extend(clip_info['segments_to_concatenate'])
+                
+                if all_segments:
+                    transcript_start = min(seg[0] for seg in all_segments)
+                    transcript_end = max(seg[1] for seg in all_segments)
+                    transcript_duration = transcript_end - transcript_start
+                    
+                    self.logger.info(f"🎵 音频文件时长: {total_duration_ms/1000:.1f}秒 ({total_duration_ms}ms)")
+                    self.logger.info(f"📝 转录时间戳范围: {transcript_start}ms - {transcript_end}ms ({transcript_duration/1000:.1f}秒)")
+                    
+                    # 时间轴偏移检测
+                    duration_diff = abs(total_duration_ms - transcript_duration) 
+                    if duration_diff > 5000:  # 超过5秒差异
+                        self.logger.warning(f"⚠️ 时间轴可能不匹配: 音频={total_duration_ms/1000:.1f}s vs 转录={transcript_duration/1000:.1f}s, 差异={duration_diff/1000:.1f}s")
+                    
+                    # 检查转录时间戳是否超出音频范围
+                    if transcript_end > total_duration_ms:
+                        self.logger.error(f"❌ 转录时间戳超出音频范围: {transcript_end}ms > {total_duration_ms}ms")
+                        self.logger.error(f"   这通常意味着转录基于视频时间轴，但音频分离后时间轴发生偏移")
+                    
+                    if transcript_start > total_duration_ms / 2:
+                        self.logger.warning(f"⚠️ 转录开始时间较晚: {transcript_start}ms，可能存在时间偏移")
+            
+            self.logger.info(f"音频格式: {audio_info['format']['format_name']}")
             
         except Exception as e:
             self.logger.error(f"ffprobe音频信息获取失败: {e}")
