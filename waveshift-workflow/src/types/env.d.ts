@@ -16,6 +16,43 @@ interface FFmpegService {
 	}>;
 }
 
+// Audio Segment Service Binding 接口 (WorkerEntrypoint)
+interface AudioSegmentService {
+	segment(params: {
+		audioKey: string;
+		transcripts: Array<{
+			sequence: number;
+			start: string;
+			end: string;
+			speaker: string;
+			original: string;
+			translation?: string;
+			content_type: string;
+		}>;
+		goalDurationMs?: number;
+		minDurationMs?: number;
+		paddingMs?: number;
+		outputPrefix: string;
+	}): Promise<{
+		success: boolean;
+		segments?: Array<{
+			segmentId: string;
+			audioKey: string;
+			speaker: string;
+			startMs: number;
+			endMs: number;
+			durationMs: number;
+			sentences: Array<{
+				sequence: number;
+				original: string;
+				translation?: string;
+			}>;
+		}>;
+		sentenceToSegmentMap?: Record<number, string>;
+		error?: string;
+	}>;
+}
+
 interface Env {
 	// 存储绑定 - 统一存储桶
 	MEDIA_STORAGE: R2Bucket;        // waveshift-media桶 - 所有媒体文件
@@ -26,6 +63,7 @@ interface Env {
 	// 服务绑定
 	FFMPEG_SERVICE: FFmpegService;
 	TRANSCRIBE_SERVICE: Fetcher;
+	AUDIO_SEGMENT_SERVICE: AudioSegmentService;
 	
 	// 其他绑定
 	SEP_TRANS_PROCESSOR: WorkflowBinding;

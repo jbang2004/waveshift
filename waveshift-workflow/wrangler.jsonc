@@ -70,6 +70,12 @@
 			"binding": "TRANSCRIBE_SERVICE",
 			"service": "waveshift-transcribe-worker",
 			"environment": "production"
+		},
+		{
+			"binding": "AUDIO_SEGMENT_SERVICE",
+			"service": "waveshift-audio-segment-worker",
+			"environment": "production",
+			"entrypoint": "AudioSegmentWorker"
 		}
 	],
 	

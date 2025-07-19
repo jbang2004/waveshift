@@ -1,0 +1,48 @@
+{
+  "name": "waveshift-audio-segment-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  
+  // Container 配置
+  "containers": [{
+    "name": "waveshift-audio-segment-container",
+    "class_name": "AudioSegmentContainer",
+    "image": "./Dockerfile",
+    "instance_type": "standard",
+    "max_instances": 3
+  }],
+  
+  // Durable Object 绑定
+  "durable_objects": {
+    "bindings": [{
+      "name": "AUDIO_SEGMENT_CONTAINER",
+      "class_name": "AudioSegmentContainer"
+    }]
+  },
+  
+  // 环境变量
+  "vars": {
+    "ENVIRONMENT": "production",
+    "CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
+    "R2_BUCKET_NAME": "waveshift-media",
+    "R2_PUBLIC_DOMAIN": "media.waveshift.net"
+  },
+  
+  // R2 存储绑定
+  "r2_buckets": [{
+    "binding": "R2_BUCKET",
+    "bucket_name": "waveshift-media"
+  }],
+  
+  // 数据库迁移
+  "migrations": [{
+    "tag": "v1",
+    "new_sqlite_classes": ["AudioSegmentContainer"]
+  }],
+  
+  // 构建配置 - 移除 TypeScript 构建
+  // "build": {
+  //   "command": "npm run build"
+  // }
+}

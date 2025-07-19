@@ -194,25 +194,94 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				};
 			});
 			
-			// 步骤3: 清理临时文件（原始文件保留在videos桶）
+			// 步骤3: 音频切分 (新增)
+			const audioSegmentResult = await step.do("audio-segment", async () => {
+				console.log(`步骤3: 开始音频切分 ${taskId}`);
+				
+				// 1. 从数据库获取转录数据
+				const transcriptionData = await env.DB.prepare(`
+					SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text 
+					FROM transcription_segments 
+					WHERE transcription_id = ? 
+					ORDER BY sequence
+				`).bind(transcriptionResult.transcriptionId).all();
+				
+				if (!transcriptionData.results || transcriptionData.results.length === 0) {
+					console.log(`跳过音频切分: 没有转录数据`);
+					return { success: false, message: '没有转录数据' };
+				}
+				
+				// 2. 转换数据格式
+				const transcripts = transcriptionData.results.map((row: any) => ({
+					sequence: row.sequence,
+					start: `${Math.floor(row.start_ms / 60000)}m${Math.floor((row.start_ms % 60000) / 1000)}s${row.start_ms % 1000}ms`,
+					end: `${Math.floor(row.end_ms / 60000)}m${Math.floor((row.end_ms % 60000) / 1000)}s${row.end_ms % 1000}ms`,
+					speaker: row.speaker,
+					original: row.original_text,
+					translation: row.translated_text,
+					content_type: row.content_type
+				}));
+				
+				console.log(`准备切分音频: 共 ${transcripts.length} 个转录片段`);
+				
+				// 3. 调用音频切分服务
+				const pathParts = originalFile.split('/');
+				const userId = pathParts[1];
+				const outputPrefix = `users/${userId}/${taskId}/audio-segments`;
+				
+				const result = await env.AUDIO_SEGMENT_SERVICE.segment({
+					audioKey: audioKey,
+					transcripts,
+					goalDurationMs: 10000,  // 10秒目标时长
+					minDurationMs: 3000,    // 3秒最小时长
+					paddingMs: 500,         // 500ms padding
+					outputPrefix
+				});
+				
+				if (!result.success) {
+					console.error(`音频切分失败: ${result.error}`);
+					return { success: false, error: result.error };
+				}
+				
+				console.log(`✅ 音频切分完成: 生成 ${result.segments?.length || 0} 个音频片段`);
+				
+				// 4. 将切分信息存储到数据库(可选)
+				if (result.segments && result.segments.length > 0) {
+					// 可以在这里存储音频片段信息到数据库
+					console.log(`🎵 音频切片详情:`, result.segments.map(s => ({
+						id: s.segmentId,
+						speaker: s.speaker,
+						duration: `${s.durationMs}ms`,
+						sentences: s.sentences.length
+					})));
+				}
+				
+				return {
+					success: true,
+					segmentCount: result.segments?.length || 0,
+					sentenceToSegmentMap: result.sentenceToSegmentMap
+				};
+			});
+			
+			// 步骤4: 清理临时文件（原始文件保留在videos桶）
 			await step.do("cleanup", async () => {
-				console.log(`步骤3: 清理完成，保留原始文件: ${originalFile}`);
+				console.log(`步骤4: 清理完成，保留原始文件: ${originalFile}`);
 				// 不删除原始文件，保留在videos桶中供用户下载
 			});
 			
-			// 步骤4: 更新最终状态
+			// 步骤5: 更新最终状态
 			await step.do("finalize", async () => {
-				console.log(`步骤4: 任务完成 ${taskId}`);
+				console.log(`步骤5: 任务完成 ${taskId}`);
 				
 				await completeMediaTask(env, taskId, true);
 				
 				console.log(`SepTransWorkflow 成功完成: ${taskId}`);
 			});
 			
-			// 步骤5: 完成日志
+			// 步骤6: 完成日志
 			await step.do("complete-logging", async () => {
-				console.log(`步骤5: 工作流完成 ${taskId}`);
-				console.log(`📊 结果统计: 视频=${videoUrl}, 音频=${audioUrl}, 转录片段=${transcriptionResult.totalSegments}`);
+				console.log(`步骤6: 工作流完成 ${taskId}`);
+				console.log(`📊 结果统计: 视频=${videoUrl}, 音频=${audioUrl}, 转录片段=${transcriptionResult.totalSegments}, 音频切片=${audioSegmentResult.segmentCount}`);
 			});
 			
 		} catch (error: any) {
