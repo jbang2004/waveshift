@@ -223,7 +223,7 @@ class AudioSegmenter:
         return merged
     
     async def extract_and_save_clips(self, audio_path: str, clips_library: Dict, 
-                                    output_prefix: str, s3_client) -> List[AudioSegment]:
+                                    output_prefix: str, s3_client, bucket_name: str) -> List[AudioSegment]:
         """提取并保存音频切片到R2"""
         # 加载音频文件
         self.logger.info(f"加载音频文件: {audio_path}")
@@ -273,6 +273,7 @@ class AudioSegmenter:
                     
                     with open(tmp_file.name, 'rb') as f:
                         s3_client.put_object(
+                            Bucket=bucket_name,
                             Body=f,
                             Key=audio_key,
                             ContentType='audio/wav'
@@ -282,15 +283,16 @@ class AudioSegmenter:
                     os.unlink(tmp_file.name)
                 
                 # 创建segment对象
-                segment = AudioSegment(
-                    segmentId=clip_id,
-                    audioKey=audio_key,
-                    speaker=clip_info['speaker'],
-                    startMs=clip_info['segments_to_concatenate'][0][0],
-                    endMs=clip_info['segments_to_concatenate'][-1][1],
-                    durationMs=clip_info['total_duration_ms'],
-                    sentences=clip_info['sentences']
-                )
+                segment_data = {
+                    'segmentId': clip_id,
+                    'audioKey': audio_key,
+                    'speaker': clip_info['speaker'],
+                    'startMs': clip_info['segments_to_concatenate'][0][0],
+                    'endMs': clip_info['segments_to_concatenate'][-1][1],
+                    'durationMs': clip_info['total_duration_ms'],
+                    'sentences': clip_info['sentences']
+                }
+                segment = AudioSegment(**segment_data)
                 segments.append(segment)
                 
                 self.logger.info(f"已保存切片: {audio_key}")
@@ -365,28 +367,20 @@ async def segment_audio(request: SegmentRequest):
             logger.info(f"生成了 {len(clips_library)} 个切片计划")
             
             # 提取并保存切片
-            s3_client_for_bucket = boto3.client(
-                's3',
-                endpoint_url=f'https://{request.r2Config.accountId}.r2.cloudflarestorage.com',
-                aws_access_key_id=request.r2Config.accessKeyId,
-                aws_secret_access_key=request.r2Config.secretAccessKey,
-                region_name='auto'
-            ).meta.client
-            s3_client_for_bucket._client_config.s3 = {'addressing_style': 'path'}
-            s3_resource = boto3.resource(
+            s3_client_for_upload = boto3.client(
                 's3',
                 endpoint_url=f'https://{request.r2Config.accountId}.r2.cloudflarestorage.com',
                 aws_access_key_id=request.r2Config.accessKeyId,
                 aws_secret_access_key=request.r2Config.secretAccessKey,
                 region_name='auto'
             )
-            bucket = s3_resource.Bucket(request.r2Config.bucketName)
             
             segments = await segmenter.extract_and_save_clips(
                 str(audio_path),
                 clips_library,
                 request.outputPrefix,
-                bucket
+                s3_client_for_upload,
+                request.r2Config.bucketName
             )
             
             logger.info(f"成功生成 {len(segments)} 个音频切片")
