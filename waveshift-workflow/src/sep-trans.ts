@@ -114,6 +114,9 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 
 				const decoder = new TextDecoder();
 				let metadata: any = null;
+				
+				// 🔥 收集所有已存储的segments
+				const allStoredSegments: TranscriptionSegment[] = [];
 
 				// 时间格式解析函数: "XmYsZms" -> 毫秒数
 				const parseTimeToMs = (timeStr: string): number => {
@@ -152,7 +155,12 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 										};
 										
 										// 🔥 核心改进：实时处理每个片段
-										await processSegmentRealtime(env, mergeState, segment);
+										const storedSegment = await processSegmentRealtime(env, mergeState, segment);
+										
+										// 🔥 收集已存储的segment（如果有）
+										if (storedSegment) {
+											allStoredSegments.push(storedSegment);
+										}
 									} else if (data.type === 'error') {
 										throw new Error(`转录服务错误: ${data.error}`);
 									}
@@ -171,12 +179,25 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					const isFirst = !mergeState.isFirstSegmentStored;
 					await storeSegmentToD1(env, mergeState.transcriptionId, mergeState.currentGroup, ++mergeState.lastStoredSequence, isFirst);
 					console.log(`💾 存储最后一个合并组: sequence=${mergeState.lastStoredSequence}, is_first=${isFirst}`);
+					
+					// 🔥 收集最后一个存储的segment
+					allStoredSegments.push({
+						...mergeState.currentGroup,
+						sequence: mergeState.lastStoredSequence,
+						is_first: isFirst,
+						is_last: false
+					});
 				}
 
 				// 7. 标记最后一个片段为 is_last=true
 				if (mergeState.lastStoredSequence > 0) {
 					await markLastTranscriptionSegment(env, transcriptionId);
 					console.log(`🏁 标记最后片段完成: transcription_id=${transcriptionId}`);
+					
+					// 🔥 更新最后一个segment的is_last标记
+					if (allStoredSegments.length > 0) {
+						allStoredSegments[allStoredSegments.length - 1].is_last = true;
+					}
 				}
 
 				// 8. 更新转录记录的总片段数
@@ -186,11 +207,13 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				await updateMediaTaskStatus(env, taskId, 'completed', 90);
 				
 				console.log(`✅ 实时转录完成: ID=${transcriptionId}, 最终片段数=${mergeState.lastStoredSequence}`);
+				console.log(`📊 收集到 ${allStoredSegments.length} 个已存储的segments`);
 				
 				return {
 					transcriptionId,
 					totalSegments: mergeState.lastStoredSequence,
-					metadata
+					metadata,
+					segments: allStoredSegments  // 🔥 返回所有已存储的segments
 				};
 			});
 			
@@ -198,33 +221,26 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 			const audioSegmentResult = await step.do("audio-segment", async () => {
 				console.log(`步骤3: 开始音频切分 ${taskId}`);
 				
-				// 1. 从数据库获取转录数据
-				const transcriptionData = await env.DB.prepare(`
-					SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text 
-					FROM transcription_segments 
-					WHERE transcription_id = ? 
-					ORDER BY sequence
-				`).bind(transcriptionResult.transcriptionId).all();
-				
-				if (!transcriptionData.results || transcriptionData.results.length === 0) {
+				// 🔥 使用上一步收集的数据，避免查询D1
+				if (!transcriptionResult.segments || transcriptionResult.segments.length === 0) {
 					console.log(`跳过音频切分: 没有转录数据`);
 					return { success: false, message: '没有转录数据' };
 				}
 				
-				// 2. 直接传递毫秒值，避免冗余转换
-				const transcripts = transcriptionData.results.map((row: any) => ({
-					sequence: row.sequence,
-					startMs: row.start_ms,  // 直接使用毫秒
-					endMs: row.end_ms,      // 直接使用毫秒
-					speaker: row.speaker,
-					original: row.original_text,
-					translation: row.translated_text,
-					content_type: row.content_type
+				// 🔥 直接使用已收集的segments，转换为字符串格式（临时兼容）
+				const transcripts = transcriptionResult.segments.map((segment: TranscriptionSegment) => ({
+					sequence: segment.sequence,
+					start: `${Math.floor(segment.start_ms / 60000)}m${Math.floor((segment.start_ms % 60000) / 1000)}s${segment.start_ms % 1000}ms`,
+					end: `${Math.floor(segment.end_ms / 60000)}m${Math.floor((segment.end_ms % 60000) / 1000)}s${segment.end_ms % 1000}ms`,
+					speaker: segment.speaker,
+					original: segment.original_text,
+					translation: segment.translated_text,
+					content_type: segment.content_type
 				}));
 				
 				console.log(`🎯 转录数据样本 (前3条):`, transcripts.slice(0, 3).map(t => ({
 					sequence: t.sequence,
-					timeRange: `${t.startMs}-${t.endMs}ms (${t.endMs - t.startMs}ms)`,
+					timeRange: `${t.start} - ${t.end}`,
 					speaker: t.speaker,
 					text: t.original.substring(0, 30) + '...'
 				})));

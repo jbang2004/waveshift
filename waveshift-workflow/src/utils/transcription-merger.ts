@@ -141,21 +141,28 @@ export async function processSegmentRealtime(
   env: Env, 
   state: RealtimeMergeState, 
   segment: TranscriptionSegment
-): Promise<void> {
+): Promise<TranscriptionSegment | null> {
   // 规则：只处理speech类型片段
   if (segment.content_type !== 'speech') {
     // 如果有待合并的组，先存储
     if (state.currentGroup) {
       const isFirst = !state.isFirstSegmentStored;
       await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst);
+      const storedSegment = {
+        ...state.currentGroup,
+        sequence: state.lastStoredSequence,
+        is_first: isFirst,
+        is_last: false
+      };
       state.currentGroup = null;
       if (isFirst) {
         state.isFirstSegmentStored = true;
       }
+      return storedSegment;
     }
     
     console.log(`⏭️  跳过非speech片段: type=${segment.content_type}, speaker=${segment.speaker}`);
-    return;
+    return null;
   }
   
   if (!state.currentGroup) {
@@ -175,14 +182,24 @@ export async function processSegmentRealtime(
       // 无法合并，存储当前组并开始新组
       const isFirst = !state.isFirstSegmentStored;
       await storeSegmentToD1(env, state.transcriptionId, state.currentGroup, ++state.lastStoredSequence, isFirst);
+      const storedSegment = {
+        ...state.currentGroup,
+        sequence: state.lastStoredSequence,
+        is_first: isFirst,
+        is_last: false
+      };
       state.currentGroup = { ...segment };
       if (isFirst) {
         state.isFirstSegmentStored = true;
       }
       
       console.log(`💾 存储组并开始新组: 说话人=${segment.speaker}, 已存储序列=${state.lastStoredSequence}`);
+      return storedSegment;
     }
   }
+  
+  // 当前片段被合并或开始新组，但尚未存储
+  return null;
 }
 
 
