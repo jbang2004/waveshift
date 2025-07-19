@@ -37,6 +37,7 @@ jobs:
         run: |
           cd waveshift-audio-segment-worker
           npm install
+          npm install wrangler@latest --save-dev
 
 
       - name: Generate Cloudflare types
@@ -63,13 +64,10 @@ jobs:
           echo "📋 wrangler.jsonc container config:"
           grep -A 5 "containers" wrangler.jsonc
 
-      - name: Set R2 Secrets
-        run: |
-          cd waveshift-audio-segment-worker
-          echo "${{ secrets.R2_ACCESS_KEY_ID }}" | npx wrangler secret put R2_ACCESS_KEY_ID
-          echo "${{ secrets.R2_SECRET_ACCESS_KEY }}" | npx wrangler secret put R2_SECRET_ACCESS_KEY
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # R2 Secrets 配置 - 暂时跳过，手动配置
+      # 运行以下命令手动设置:
+      # wrangler secret put R2_ACCESS_KEY_ID
+      # wrangler secret put R2_SECRET_ACCESS_KEY
 
       - name: Deploy to Cloudflare Workers (Container)
         uses: cloudflare/wrangler-action@v3
