@@ -18,7 +18,6 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from pydub import AudioSegment
 
 # 配置日志
 logging.basicConfig(
@@ -224,7 +223,9 @@ class AudioSegmenter:
     
     async def extract_and_save_clips(self, audio_path: str, clips_library: Dict, 
                                     output_prefix: str, s3_client, bucket_name: str) -> List[AudioSegment]:
-        """提取并保存音频切片到R2"""
+        """使用ffmpeg直接切分音频 - 高性能AAC原生支持"""
+        import subprocess
+        
         # 验证音频文件
         self.logger.info(f"验证音频文件: {audio_path}")
         if not os.path.exists(audio_path):
@@ -236,100 +237,140 @@ class AudioSegmenter:
         if file_size == 0:
             raise ValueError(f"音频文件为空: {audio_path}")
         
-        # 加载音频文件 - 模拟原始tts-engine的方式
+        # 检查ffmpeg可用性和音频信息
         try:
-            self.logger.info(f"开始加载音频文件: {audio_path}")
+            # 获取音频时长信息
+            probe_cmd = [
+                'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+                '-show_format', '-show_streams', audio_path
+            ]
+            probe_result = await asyncio.to_thread(
+                subprocess.run, probe_cmd, 
+                capture_output=True, text=True, check=True
+            )
             
-            # 检查ffmpeg可用性
-            import subprocess
-            try:
-                ffmpeg_check = await asyncio.to_thread(
-                    subprocess.run, ['ffmpeg', '-version'], 
-                    capture_output=True, text=True, check=True
-                )
-                self.logger.info("ffmpeg可用性检查通过")
-            except Exception as e:
-                self.logger.warning(f"ffmpeg检查失败: {e}")
+            import json
+            audio_info = json.loads(probe_result.stdout)
+            duration_str = audio_info['format']['duration']
+            total_duration_ms = int(float(duration_str) * 1000)
             
-            # 模拟原始代码的直接加载方式
-            audio = await asyncio.to_thread(AudioSegment.from_file, audio_path)
-            self.logger.info(f"音频文件加载成功，时长: {len(audio)/1000:.1f}秒")
+            self.logger.info(f"音频文件信息: 时长={total_duration_ms/1000:.1f}秒, 格式={audio_info['format']['format_name']}")
             
         except Exception as e:
-            self.logger.error(f"直接加载失败: {e}")
-            # 尝试不同的格式参数，模拟原始环境可能的设置
-            file_ext = os.path.splitext(audio_path)[1].lower()
-            
-            try:
-                if file_ext in ['.aac']:
-                    self.logger.info("尝试使用format='aac'参数")
-                    audio = await asyncio.to_thread(
-                        AudioSegment.from_file, audio_path, format="aac"
-                    )
-                elif file_ext in ['.m4a']:
-                    self.logger.info("尝试使用format='m4a'参数")
-                    audio = await asyncio.to_thread(
-                        AudioSegment.from_file, audio_path, format="m4a"
-                    )
-                elif file_ext in ['.mp3']:
-                    audio = await asyncio.to_thread(AudioSegment.from_mp3, audio_path)
-                elif file_ext in ['.wav']:
-                    audio = await asyncio.to_thread(AudioSegment.from_wav, audio_path)
-                else:
-                    # 最后尝试强制使用mp4格式（某些AAC可能被识别为mp4）
-                    self.logger.info("尝试使用format='mp4'参数")
-                    audio = await asyncio.to_thread(
-                        AudioSegment.from_file, audio_path, format="mp4"
-                    )
-                
-                self.logger.info(f"格式化加载成功，时长: {len(audio)/1000:.1f}秒")
-                
-            except Exception as e2:
-                self.logger.error(f"所有加载方法失败: 原始={e}, 格式化={e2}")
-                raise ValueError(f"无法加载音频文件 {audio_path}: {e2}")
+            self.logger.error(f"ffprobe音频信息获取失败: {e}")
+            raise ValueError(f"无法解析音频文件: {e}")
         
         segments = []
         
-        # 处理每个切片
-        for clip_id, clip_info in clips_library.items():
+        # 并行处理所有切片 - 使用ffmpeg直接切分
+        async def process_single_clip_with_ffmpeg(clip_id: str, clip_info: Dict) -> Optional[AudioSegment]:
+            """使用ffmpeg处理单个切片"""
             try:
-                # 合并音频片段
-                combined_audio = AudioSegment.empty()
+                speaker_clean = clip_info['speaker'].replace(' ', '_').replace('/', '_')
+                audio_key = f"{output_prefix}/{clip_id}_{speaker_clean}.wav"
                 
-                for i, (start_ms, end_ms) in enumerate(clip_info['segments_to_concatenate']):
-                    # 边界检查
-                    start_ms = max(0, start_ms)
-                    end_ms = min(len(audio), end_ms)
-                    
-                    if start_ms >= end_ms:
-                        continue
-                    
-                    segment = audio[start_ms:end_ms]
-                    
-                    # 淡入淡出处理
-                    fade_duration = min(self.padding_ms // 2, 100)
-                    if i == 0:
-                        segment = segment.fade_in(fade_duration)
-                    if i == len(clip_info['segments_to_concatenate']) - 1:
-                        segment = segment.fade_out(fade_duration)
-                    
-                    combined_audio += segment
-                
-                if len(combined_audio) == 0:
-                    continue
-                
-                # 标准化音频
-                combined_audio = combined_audio.normalize()
-                
-                # 导出到临时文件
+                # 创建临时输出文件
                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                    combined_audio.export(tmp_file.name, format="wav")
+                    output_path = tmp_file.name
+                
+                try:
+                    # 构建ffmpeg命令 - 支持多段切分和合并
+                    segments_to_concat = clip_info['segments_to_concatenate']
+                    
+                    if len(segments_to_concat) == 1:
+                        # 单段切分 - 简单情况
+                        start_ms, end_ms = segments_to_concat[0]
+                        
+                        # 边界检查
+                        start_ms = max(0, start_ms)
+                        end_ms = min(total_duration_ms, end_ms)
+                        duration_ms = end_ms - start_ms
+                        
+                        if duration_ms <= 0:
+                            self.logger.warning(f"切片 {clip_id} 时长无效，跳过")
+                            return None
+                        
+                        # 转换为ffmpeg时间格式
+                        start_sec = start_ms / 1000.0
+                        duration_sec = duration_ms / 1000.0
+                        
+                        # 构建ffmpeg命令：切分 + 淡入淡出 + 音量标准化
+                        fade_duration = min(self.padding_ms / 1000.0, 0.5)  # 最大0.5秒淡化
+                        
+                        ffmpeg_cmd = [
+                            'ffmpeg', '-y',  # 覆盖输出文件
+                            '-i', audio_path,
+                            '-ss', f'{start_sec:.3f}',  # 开始时间
+                            '-t', f'{duration_sec:.3f}',  # 持续时间
+                            '-af', f'afade=in:d={fade_duration:.3f},afade=out:d={fade_duration:.3f},loudnorm',  # 音频滤镜
+                            '-ac', '1',  # 单声道
+                            '-ar', '22050',  # 采样率
+                            output_path
+                        ]
+                        
+                    else:
+                        # 多段合并 - 复杂情况，使用filter_complex
+                        filter_parts = []
+                        input_specs = []
+                        
+                        for i, (start_ms, end_ms) in enumerate(segments_to_concat):
+                            start_ms = max(0, start_ms)
+                            end_ms = min(total_duration_ms, end_ms)
+                            duration_ms = end_ms - start_ms
+                            
+                            if duration_ms <= 0:
+                                continue
+                                
+                            start_sec = start_ms / 1000.0
+                            duration_sec = duration_ms / 1000.0
+                            
+                            # 为每个段添加输入
+                            input_specs.extend(['-ss', f'{start_sec:.3f}', '-t', f'{duration_sec:.3f}', '-i', audio_path])
+                            
+                            # 为每个段添加音频处理
+                            fade_duration = min(self.padding_ms / 1000.0, 0.2)
+                            if i == 0:
+                                # 第一段：淡入
+                                filter_parts.append(f'[{i}:a]afade=in:d={fade_duration:.3f}[a{i}]')
+                            elif i == len(segments_to_concat) - 1:
+                                # 最后一段：淡出
+                                filter_parts.append(f'[{i}:a]afade=out:d={fade_duration:.3f}[a{i}]')
+                            else:
+                                # 中间段：轻微淡入淡出
+                                filter_parts.append(f'[{i}:a]afade=in:d={fade_duration/2:.3f},afade=out:d={fade_duration/2:.3f}[a{i}]')
+                        
+                        if not filter_parts:
+                            self.logger.warning(f"切片 {clip_id} 无有效段，跳过")
+                            return None
+                        
+                        # 合并所有段
+                        concat_inputs = ''.join(f'[a{i}]' for i in range(len(filter_parts)))
+                        filter_parts.append(f'{concat_inputs}concat=n={len(filter_parts)}:v=0:a=1,loudnorm[out]')
+                        
+                        filter_complex = ';'.join(filter_parts)
+                        
+                        ffmpeg_cmd = ['ffmpeg', '-y'] + input_specs + [
+                            '-filter_complex', filter_complex,
+                            '-map', '[out]',
+                            '-ac', '1',  # 单声道
+                            '-ar', '22050',  # 采样率
+                            output_path
+                        ]
+                    
+                    # 执行ffmpeg命令
+                    self.logger.info(f"处理切片 {clip_id}: {len(segments_to_concat)}段, 说话人={clip_info['speaker']}")
+                    
+                    result = await asyncio.to_thread(
+                        subprocess.run, ffmpeg_cmd,
+                        capture_output=True, text=True, check=True
+                    )
+                    
+                    # 验证输出文件
+                    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                        raise ValueError(f"ffmpeg输出文件无效: {output_path}")
                     
                     # 上传到R2
-                    speaker_clean = clip_info['speaker'].replace(' ', '_').replace('/', '_')
-                    audio_key = f"{output_prefix}/{clip_id}_{speaker_clean}.wav"
-                    
-                    with open(tmp_file.name, 'rb') as f:
+                    with open(output_path, 'rb') as f:
                         s3_client.put_object(
                             Bucket=bucket_name,
                             Body=f,
@@ -337,28 +378,47 @@ class AudioSegmenter:
                             ContentType='audio/wav'
                         )
                     
-                    # 删除临时文件
-                    os.unlink(tmp_file.name)
-                
-                # 创建segment对象
-                segment_data = {
-                    'segmentId': clip_id,
-                    'audioKey': audio_key,
-                    'speaker': clip_info['speaker'],
-                    'startMs': clip_info['segments_to_concatenate'][0][0],
-                    'endMs': clip_info['segments_to_concatenate'][-1][1],
-                    'durationMs': clip_info['total_duration_ms'],
-                    'sentences': clip_info['sentences']
-                }
-                segment = AudioSegment(**segment_data)
-                segments.append(segment)
-                
-                self.logger.info(f"已保存切片: {audio_key}")
-                
+                    self.logger.info(f"已保存切片: {audio_key}")
+                    
+                    # 创建segment对象
+                    segment_data = {
+                        'segmentId': clip_id,
+                        'audioKey': audio_key,
+                        'speaker': clip_info['speaker'],
+                        'startMs': clip_info['segments_to_concatenate'][0][0],
+                        'endMs': clip_info['segments_to_concatenate'][-1][1],
+                        'durationMs': clip_info['total_duration_ms'],
+                        'sentences': clip_info['sentences']
+                    }
+                    return AudioSegment(**segment_data)
+                    
+                finally:
+                    # 清理临时文件
+                    if os.path.exists(output_path):
+                        os.unlink(output_path)
+                        
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"ffmpeg处理切片 {clip_id} 失败: stderr={e.stderr}")
+                return None
             except Exception as e:
-                self.logger.error(f"处理切片 {clip_id} 失败: {e}")
-                continue
+                self.logger.error(f"处理切片 {clip_id} 异常: {e}")
+                return None
         
+        # 并行处理所有切片
+        self.logger.info(f"开始并行处理 {len(clips_library)} 个音频切片 (使用ffmpeg)")
+        tasks = [process_single_clip_with_ffmpeg(clip_id, clip_info) 
+                for clip_id, clip_info in clips_library.items()]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 收集成功的结果
+        for result in results:
+            if isinstance(result, AudioSegment):
+                segments.append(result)
+            elif isinstance(result, Exception):
+                self.logger.error(f"切片处理异常: {result}")
+        
+        self.logger.info(f"ffmpeg并行处理完成，成功生成 {len(segments)} 个音频切片")
         return segments
 
 

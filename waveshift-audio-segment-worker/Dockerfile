@@ -4,16 +4,16 @@ FROM python:3.11-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖和完整的音频编解码器
+# 安装ffmpeg和必需的音频编解码器
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libsndfile1 \
     libavcodec-extra \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 验证ffmpeg支持的编解码器
-RUN ffmpeg -codecs | grep aac || echo "AAC codec check"
+# 验证ffmpeg和ffprobe可用性
+RUN ffmpeg -version && ffprobe -version
+RUN ffmpeg -codecs | grep aac && echo "✅ AAC codec available"
 
 # 复制requirements文件
 COPY audio-segment-container/requirements.txt .
