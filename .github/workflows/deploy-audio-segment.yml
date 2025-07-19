@@ -109,7 +109,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "audioKey": "test/sample.mp3",
-              "transcripts": [{"sequence": 1, "start": "0m0s0ms", "end": "0m3s0ms", "speaker": "TestSpeaker", "original": "测试", "content_type": "speech"}],
+              "transcripts": [{"sequence": 1, "startMs": 0, "endMs": 3000, "speaker": "TestSpeaker", "original": "测试", "content_type": "speech"}],
               "outputPrefix": "test/output"
             }' || echo "Segment test failed"
 

@@ -9,8 +9,8 @@ export interface AudioSegmentRequest {
 
 export interface TranscriptItem {
   sequence: number;
-  start: string;                // 时间格式 "1m23s456ms"
-  end: string;
+  startMs: number;              // 开始时间（毫秒）
+  endMs: number;                // 结束时间（毫秒）
   speaker: string;
   original: string;
   translation?: string;

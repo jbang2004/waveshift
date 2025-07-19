@@ -227,11 +227,11 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					return { success: false, message: '没有转录数据' };
 				}
 				
-				// 🔥 直接使用已收集的segments，转换为字符串格式（临时兼容）
+				// 🔥 直接使用毫秒格式，消除冗余转换
 				const transcripts = transcriptionResult.segments.map((segment: TranscriptionSegment) => ({
 					sequence: segment.sequence,
-					start: `${Math.floor(segment.start_ms / 60000)}m${Math.floor((segment.start_ms % 60000) / 1000)}s${segment.start_ms % 1000}ms`,
-					end: `${Math.floor(segment.end_ms / 60000)}m${Math.floor((segment.end_ms % 60000) / 1000)}s${segment.end_ms % 1000}ms`,
+					startMs: segment.start_ms,
+					endMs: segment.end_ms,
 					speaker: segment.speaker,
 					original: segment.original_text,
 					translation: segment.translated_text,
@@ -240,7 +240,7 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				
 				console.log(`🎯 转录数据样本 (前3条):`, transcripts.slice(0, 3).map(t => ({
 					sequence: t.sequence,
-					timeRange: `${t.start} - ${t.end}`,
+					timeRange: `${t.startMs}ms - ${t.endMs}ms`,
 					speaker: t.speaker,
 					text: t.original.substring(0, 30) + '...'
 				})));

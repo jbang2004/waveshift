@@ -32,8 +32,8 @@ app = FastAPI(title="Audio Segment Container")
 # 数据模型
 class TranscriptItem(BaseModel):
     sequence: int
-    start: str  # "1m23s456ms"
-    end: str
+    startMs: int  # 开始时间（毫秒）
+    endMs: int    # 结束时间（毫秒）
     speaker: str
     original: str
     translation: Optional[str] = None
@@ -80,20 +80,7 @@ class AudioSegmenter:
         self.padding_ms = padding_ms
         self.logger = logger
         
-    def _time_str_to_ms(self, time_str: str) -> int:
-        """时间字符串转毫秒"""
-        match = re.match(r'(\d+)m(\d+)s(\d+)ms', time_str)
-        if not match: 
-            return 0
-        m, s, ms = map(int, match.groups())
-        return m * 60 * 1000 + s * 1000 + ms
-    
-    def _ms_to_time_str(self, ms: int) -> str:
-        """毫秒转时间字符串"""
-        minutes = ms // 60000
-        seconds = (ms % 60000) // 1000
-        milliseconds = ms % 1000
-        return f"{minutes}m{seconds}s{milliseconds}ms"
+    # 时间转换函数已移除 - 直接使用毫秒格式，无需转换
     
     def _create_audio_clips(self, transcripts: List[TranscriptItem]) -> Tuple[Dict, Dict]:
         """根据转录数据创建音频切片计划"""
@@ -102,23 +89,23 @@ class AudioSegmenter:
         # 分析时间戳范围
         speech_items = [t for t in transcripts if t.content_type == 'speech']
         if speech_items:
-            min_time = min(self._time_str_to_ms(t.start) for t in speech_items)
-            max_time = max(self._time_str_to_ms(t.end) for t in speech_items)
+            min_time = min(t.startMs for t in speech_items)
+            max_time = max(t.endMs for t in speech_items)
             self.logger.info(f"📊 转录时间戳范围: {min_time}ms - {max_time}ms ({(max_time-min_time)/1000:.1f}秒)")
         
         # 预处理：只处理speech类型的内容
         sentences = []
         for i, item in enumerate(transcripts):
             self.logger.debug(f"转录项 {i}: sequence={item.sequence}, type={item.content_type}, "
-                            f"start='{item.start}', end='{item.end}', speaker='{item.speaker}', "
+                            f"start={item.startMs}ms, end={item.endMs}ms, speaker='{item.speaker}', "
                             f"text='{item.original[:50]}...'")
             
             if item.content_type != 'speech':
                 self.logger.debug(f"  跳过非语音内容: {item.content_type}")
                 continue
             
-            start_ms = self._time_str_to_ms(item.start)
-            end_ms = self._time_str_to_ms(item.end)
+            start_ms = item.startMs
+            end_ms = item.endMs
             
             if start_ms >= end_ms:
                 self.logger.warning(f"  时间范围无效: start={start_ms}ms >= end={end_ms}ms，跳过")
