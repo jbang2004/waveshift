@@ -11,7 +11,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import boto3
 import httpx
@@ -225,10 +225,41 @@ class AudioSegmenter:
     async def extract_and_save_clips(self, audio_path: str, clips_library: Dict, 
                                     output_prefix: str, s3_client, bucket_name: str) -> List[AudioSegment]:
         """提取并保存音频切片到R2"""
+        # 验证音频文件
+        self.logger.info(f"验证音频文件: {audio_path}")
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"音频文件不存在: {audio_path}")
+        
+        file_size = os.path.getsize(audio_path)
+        self.logger.info(f"音频文件大小: {file_size} bytes")
+        
+        if file_size == 0:
+            raise ValueError(f"音频文件为空: {audio_path}")
+        
         # 加载音频文件
-        self.logger.info(f"加载音频文件: {audio_path}")
-        audio = await asyncio.to_thread(AudioSegment.from_file, audio_path)
-        self.logger.info(f"音频文件加载成功，时长: {len(audio)/1000:.1f}秒")
+        try:
+            self.logger.info(f"开始加载音频文件: {audio_path}")
+            # 先尝试直接加载
+            audio = await asyncio.to_thread(AudioSegment.from_file, audio_path)
+            self.logger.info(f"音频文件加载成功，时长: {len(audio)/1000:.1f}秒")
+        except Exception as e:
+            self.logger.error(f"直接加载失败，尝试指定格式: {e}")
+            # 尝试根据扩展名指定格式
+            try:
+                file_ext = os.path.splitext(audio_path)[1].lower()
+                if file_ext in ['.mp3']:
+                    audio = await asyncio.to_thread(AudioSegment.from_mp3, audio_path)
+                elif file_ext in ['.wav']:
+                    audio = await asyncio.to_thread(AudioSegment.from_wav, audio_path)
+                elif file_ext in ['.aac', '.m4a']:
+                    audio = await asyncio.to_thread(AudioSegment.from_file, audio_path, format="aac")
+                else:
+                    # 最后尝试原始格式
+                    audio = await asyncio.to_thread(AudioSegment.from_file, audio_path, format="mp3")
+                self.logger.info(f"指定格式加载成功，时长: {len(audio)/1000:.1f}秒")
+            except Exception as e2:
+                self.logger.error(f"所有格式尝试失败: {e2}")
+                raise ValueError(f"无法加载音频文件 {audio_path}: {e2}")
         
         segments = []
         
@@ -322,7 +353,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "audio-segment-container",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -337,15 +368,34 @@ async def segment_audio(request: SegmentRequest):
         
         # 下载音频文件到临时目录
         with tempfile.TemporaryDirectory() as temp_dir:
-            audio_path = Path(temp_dir) / "input_audio.mp3"
+            # 根据原始文件扩展名创建临时文件
+            original_ext = os.path.splitext(request.audioKey)[1] or '.aac'
+            audio_path = Path(temp_dir) / f"input_audio{original_ext}"
             
             # 从R2下载音频
-            logger.info(f"从R2下载音频: {request.audioKey}")
-            s3_client.download_file(
-                Bucket=request.r2Config.bucketName,
-                Key=request.audioKey,
-                Filename=str(audio_path)
-            )
+            try:
+                logger.info(f"从R2下载音频: {request.audioKey}")
+                logger.info(f"目标路径: {audio_path}")
+                
+                s3_client.download_file(
+                    Bucket=request.r2Config.bucketName,
+                    Key=request.audioKey,
+                    Filename=str(audio_path)
+                )
+                
+                # 验证下载的文件
+                if not audio_path.exists():
+                    raise FileNotFoundError(f"下载失败，文件不存在: {audio_path}")
+                
+                downloaded_size = audio_path.stat().st_size
+                logger.info(f"音频文件下载成功: {downloaded_size} bytes")
+                
+                if downloaded_size == 0:
+                    raise ValueError(f"下载的音频文件为空: {request.audioKey}")
+                    
+            except Exception as e:
+                logger.error(f"下载音频文件失败: {e}")
+                raise ValueError(f"无法下载音频文件 {request.audioKey}: {e}")
             
             # 创建切分器
             segmenter = AudioSegmenter(
@@ -391,11 +441,29 @@ async def segment_audio(request: SegmentRequest):
                 sentenceToSegmentMap=sentence_to_clip_map
             )
             
-    except Exception as e:
-        logger.error(f"音频切分失败: {e}", exc_info=True)
+    except ValueError as e:
+        logger.error(f"参数错误: {e}")
         return SegmentResponse(
             success=False,
             error=str(e)
+        )
+    except FileNotFoundError as e:
+        logger.error(f"文件不存在: {e}")
+        return SegmentResponse(
+            success=False,
+            error=str(e)
+        )
+    except Exception as e:
+        logger.error(f"音频切分失败: {e}", exc_info=True)
+        # 获取更详细的错误信息
+        error_type = type(e).__name__
+        error_message = str(e)
+        if hasattr(e, '__cause__') and e.__cause__:
+            error_message += f" (原因: {e.__cause__})"
+        
+        return SegmentResponse(
+            success=False,
+            error=f"{error_type}: {error_message}"
         )
 
 
