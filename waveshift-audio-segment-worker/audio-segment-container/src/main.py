@@ -236,29 +236,56 @@ class AudioSegmenter:
         if file_size == 0:
             raise ValueError(f"音频文件为空: {audio_path}")
         
-        # 加载音频文件
+        # 加载音频文件 - 模拟原始tts-engine的方式
         try:
             self.logger.info(f"开始加载音频文件: {audio_path}")
-            # 先尝试直接加载
+            
+            # 检查ffmpeg可用性
+            import subprocess
+            try:
+                ffmpeg_check = await asyncio.to_thread(
+                    subprocess.run, ['ffmpeg', '-version'], 
+                    capture_output=True, text=True, check=True
+                )
+                self.logger.info("ffmpeg可用性检查通过")
+            except Exception as e:
+                self.logger.warning(f"ffmpeg检查失败: {e}")
+            
+            # 模拟原始代码的直接加载方式
             audio = await asyncio.to_thread(AudioSegment.from_file, audio_path)
             self.logger.info(f"音频文件加载成功，时长: {len(audio)/1000:.1f}秒")
+            
         except Exception as e:
-            self.logger.error(f"直接加载失败，尝试指定格式: {e}")
-            # 尝试根据扩展名指定格式
+            self.logger.error(f"直接加载失败: {e}")
+            # 尝试不同的格式参数，模拟原始环境可能的设置
+            file_ext = os.path.splitext(audio_path)[1].lower()
+            
             try:
-                file_ext = os.path.splitext(audio_path)[1].lower()
-                if file_ext in ['.mp3']:
+                if file_ext in ['.aac']:
+                    self.logger.info("尝试使用format='aac'参数")
+                    audio = await asyncio.to_thread(
+                        AudioSegment.from_file, audio_path, format="aac"
+                    )
+                elif file_ext in ['.m4a']:
+                    self.logger.info("尝试使用format='m4a'参数")
+                    audio = await asyncio.to_thread(
+                        AudioSegment.from_file, audio_path, format="m4a"
+                    )
+                elif file_ext in ['.mp3']:
                     audio = await asyncio.to_thread(AudioSegment.from_mp3, audio_path)
                 elif file_ext in ['.wav']:
                     audio = await asyncio.to_thread(AudioSegment.from_wav, audio_path)
-                elif file_ext in ['.aac', '.m4a']:
-                    audio = await asyncio.to_thread(AudioSegment.from_file, audio_path, format="aac")
                 else:
-                    # 最后尝试原始格式
-                    audio = await asyncio.to_thread(AudioSegment.from_file, audio_path, format="mp3")
-                self.logger.info(f"指定格式加载成功，时长: {len(audio)/1000:.1f}秒")
+                    # 最后尝试强制使用mp4格式（某些AAC可能被识别为mp4）
+                    self.logger.info("尝试使用format='mp4'参数")
+                    audio = await asyncio.to_thread(
+                        AudioSegment.from_file, audio_path, format="mp4"
+                    )
+                
+                self.logger.info(f"格式化加载成功，时长: {len(audio)/1000:.1f}秒")
+                
             except Exception as e2:
-                self.logger.error(f"所有格式尝试失败: {e2}")
+                self.logger.error(f"所有加载方法失败: 原始={e}, 格式化={e2}")
                 raise ValueError(f"无法加载音频文件 {audio_path}: {e2}")
         
         segments = []
