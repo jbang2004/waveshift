@@ -19,9 +19,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# 配置日志
+# 配置日志 - 启用详细调试信息
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # 改为DEBUG级别以显示详细信息
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -82,11 +82,46 @@ class AudioSegmenter:
         
     def _time_str_to_ms(self, time_str: str) -> int:
         """时间字符串转毫秒"""
+        # 支持多种时间格式
+        self.logger.debug(f"解析时间字符串: {time_str}")
+        
+        # 格式1: "1m23s456ms" 
         match = re.match(r'(\d+)m(\d+)s(\d+)ms', time_str)
-        if not match: 
-            return 0
-        m, s, ms = map(int, match.groups())
-        return m * 60 * 1000 + s * 1000 + ms
+        if match:
+            m, s, ms = map(int, match.groups())
+            result = m * 60 * 1000 + s * 1000 + ms
+            self.logger.debug(f"  匹配格式1: {m}m{s}s{ms}ms = {result}ms")
+            return result
+        
+        # 格式2: "83.456s" (秒.毫秒)
+        match = re.match(r'(\d+)\.(\d+)s', time_str)
+        if match:
+            seconds, milliseconds = match.groups()
+            # 处理小数点后的毫秒部分（可能是1-3位）
+            ms_str = milliseconds.ljust(3, '0')[:3]  # 补齐或截取到3位
+            result = int(seconds) * 1000 + int(ms_str)
+            self.logger.debug(f"  匹配格式2: {seconds}.{milliseconds}s = {result}ms")
+            return result
+        
+        # 格式3: "83s" (纯秒)
+        match = re.match(r'(\d+)s', time_str)
+        if match:
+            seconds = int(match.group(1))
+            result = seconds * 1000
+            self.logger.debug(f"  匹配格式3: {seconds}s = {result}ms")
+            return result
+            
+        # 格式4: 纯数字，假设是秒
+        try:
+            float_seconds = float(time_str)
+            result = int(float_seconds * 1000)
+            self.logger.debug(f"  匹配格式4: {float_seconds} = {result}ms")
+            return result
+        except ValueError:
+            pass
+        
+        self.logger.warning(f"无法解析时间格式: {time_str}")
+        return 0
     
     def _ms_to_time_str(self, ms: int) -> str:
         """毫秒转时间字符串"""
@@ -97,18 +132,33 @@ class AudioSegmenter:
     
     def _create_audio_clips(self, transcripts: List[TranscriptItem]) -> Tuple[Dict, Dict]:
         """根据转录数据创建音频切片计划"""
+        self.logger.info(f"🎬 开始处理 {len(transcripts)} 个转录项")
+        
         # 预处理：只处理speech类型的内容
         sentences = []
-        for item in transcripts:
+        for i, item in enumerate(transcripts):
+            self.logger.debug(f"转录项 {i}: sequence={item.sequence}, type={item.content_type}, "
+                            f"start='{item.start}', end='{item.end}', speaker='{item.speaker}', "
+                            f"text='{item.original[:50]}...'")
+            
             if item.content_type != 'speech':
+                self.logger.debug(f"  跳过非语音内容: {item.content_type}")
                 continue
             
             start_ms = self._time_str_to_ms(item.start)
             end_ms = self._time_str_to_ms(item.end)
             
+            if start_ms >= end_ms:
+                self.logger.warning(f"  时间范围无效: start={start_ms}ms >= end={end_ms}ms，跳过")
+                continue
+            
             # 添加padding
             padded_start = max(0, start_ms - self.padding_ms)
             padded_end = end_ms + self.padding_ms
+            duration = padded_end - padded_start
+            
+            self.logger.debug(f"  时间计算: 原始[{start_ms}-{end_ms}]ms ({end_ms-start_ms}ms), "
+                            f"padding[{padded_start}-{padded_end}]ms ({duration}ms)")
             
             sentence_data = {
                 'sequence': item.sequence,
@@ -117,13 +167,18 @@ class AudioSegmenter:
                 'translation': item.translation,
                 'original_segment': [start_ms, end_ms],
                 'padded_segment': [padded_start, padded_end],
-                'segment_duration': padded_end - padded_start
+                'segment_duration': duration
             }
             
             if sentence_data['segment_duration'] > 0:
                 sentences.append(sentence_data)
+                self.logger.debug(f"  ✅ 添加有效句子: {duration}ms")
+            else:
+                self.logger.warning(f"  ❌ 句子时长无效: {duration}ms")
 
+        self.logger.info(f"📝 预处理完成，获得 {len(sentences)} 个有效语音句子")
         if not sentences:
+            self.logger.warning("⚠️ 没有有效的语音句子，返回空结果")
             return {}, {}
 
         # 识别同说话人连续块
@@ -293,6 +348,20 @@ class AudioSegmenter:
                         # 转换为ffmpeg时间格式
                         start_sec = start_ms / 1000.0
                         duration_sec = duration_ms / 1000.0
+                        end_sec = start_sec + duration_sec
+                        
+                        # 验证时间范围
+                        audio_duration_sec = total_duration_ms / 1000.0
+                        self.logger.info(f"🎵 切片 {clip_id}: 时间范围检查")
+                        self.logger.info(f"  音频总长度: {audio_duration_sec:.3f}s ({total_duration_ms}ms)")
+                        self.logger.info(f"  切分范围: {start_sec:.3f}s - {end_sec:.3f}s (时长: {duration_sec:.3f}s)")
+                        self.logger.info(f"  原始时间戳: {start_ms}ms - {end_ms}ms")
+                        
+                        # 边界警告
+                        if start_sec >= audio_duration_sec:
+                            self.logger.warning(f"⚠️ 开始时间超出音频长度: {start_sec:.3f}s >= {audio_duration_sec:.3f}s")
+                        if end_sec > audio_duration_sec:
+                            self.logger.warning(f"⚠️ 结束时间超出音频长度: {end_sec:.3f}s > {audio_duration_sec:.3f}s，将截取")
                         
                         # 构建ffmpeg命令：切分 + 淡入淡出 + 音量标准化
                         fade_duration = min(self.padding_ms / 1000.0, 0.5)  # 最大0.5秒淡化
@@ -307,6 +376,8 @@ class AudioSegmenter:
                             '-ar', '22050',  # 采样率
                             output_path
                         ]
+                        
+                        self.logger.info(f"📝 ffmpeg命令: {' '.join(ffmpeg_cmd)}")
                         
                     else:
                         # 多段合并 - 复杂情况，使用filter_complex
@@ -358,16 +429,50 @@ class AudioSegmenter:
                         ]
                     
                     # 执行ffmpeg命令
-                    self.logger.info(f"处理切片 {clip_id}: {len(segments_to_concat)}段, 说话人={clip_info['speaker']}")
+                    self.logger.info(f"🚀 执行ffmpeg处理切片 {clip_id}: {len(segments_to_concat)}段, 说话人={clip_info['speaker']}")
                     
                     result = await asyncio.to_thread(
                         subprocess.run, ffmpeg_cmd,
                         capture_output=True, text=True, check=True
                     )
                     
-                    # 验证输出文件
-                    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-                        raise ValueError(f"ffmpeg输出文件无效: {output_path}")
+                    # 详细验证输出文件
+                    if not os.path.exists(output_path):
+                        raise ValueError(f"ffmpeg未生成输出文件: {output_path}")
+                    
+                    output_size = os.path.getsize(output_path)
+                    if output_size == 0:
+                        raise ValueError(f"ffmpeg生成空文件: {output_path}")
+                    
+                    # 使用ffprobe验证生成的音频文件
+                    try:
+                        probe_cmd = [
+                            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+                            '-show_format', output_path
+                        ]
+                        probe_result = await asyncio.to_thread(
+                            subprocess.run, probe_cmd,
+                            capture_output=True, text=True, check=True
+                        )
+                        
+                        import json
+                        output_info = json.loads(probe_result.stdout)
+                        output_duration = float(output_info['format']['duration'])
+                        
+                        self.logger.info(f"✅ 文件生成成功: {output_size} bytes, 时长: {output_duration:.3f}s")
+                        
+                        # 检查时长是否合理
+                        expected_duration = duration_sec if len(segments_to_concat) == 1 else clip_info['total_duration_ms'] / 1000.0
+                        duration_diff = abs(output_duration - expected_duration)
+                        
+                        if duration_diff > 1.0:  # 超过1秒差异
+                            self.logger.warning(f"⚠️ 时长偏差较大: 期望{expected_duration:.3f}s, 实际{output_duration:.3f}s, 差异{duration_diff:.3f}s")
+                        
+                        if output_duration < 0.1:  # 少于0.1秒
+                            self.logger.warning(f"⚠️ 生成的音频时长过短: {output_duration:.3f}s，可能是空白音频")
+                            
+                    except Exception as e:
+                        self.logger.warning(f"无法验证输出音频信息: {e}")
                     
                     # 上传到R2
                     with open(output_path, 'rb') as f:
@@ -378,7 +483,11 @@ class AudioSegmenter:
                             ContentType='audio/wav'
                         )
                     
-                    self.logger.info(f"已保存切片: {audio_key}")
+                    self.logger.info(f"📤 已上传切片到R2: {audio_key}")
+                    
+                    # 输出ffmpeg的stderr用于调试
+                    if result.stderr:
+                        self.logger.debug(f"ffmpeg stderr: {result.stderr}")
                     
                     # 创建segment对象
                     segment_data = {
