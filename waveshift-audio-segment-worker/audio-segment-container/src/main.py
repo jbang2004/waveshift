@@ -350,19 +350,34 @@ class AudioSegmenter:
                         if end_sec > audio_duration_sec:
                             self.logger.warning(f"⚠️ 结束时间超出音频长度: {end_sec:.3f}s > {audio_duration_sec:.3f}s，将截取")
                         
-                        # 构建ffmpeg命令：切分 + 淡入淡出 + 音量标准化
-                        fade_duration = min(self.padding_ms / 1000.0, 0.5)  # 最大0.5秒淡化
+                        # 🚀 优化：使用stream copy避免重编码
+                        # 只在必要时应用音频滤镜
+                        use_filters = getattr(self, 'use_audio_filters', False)
                         
-                        ffmpeg_cmd = [
-                            'ffmpeg', '-y',  # 覆盖输出文件
-                            '-i', audio_path,
-                            '-ss', f'{start_sec:.3f}',  # 开始时间
-                            '-t', f'{duration_sec:.3f}',  # 持续时间
-                            '-af', f'afade=in:d={fade_duration:.3f},afade=out:d={fade_duration:.3f},loudnorm',  # 音频滤镜
-                            '-ac', '1',  # 单声道
-                            '-ar', '22050',  # 采样率
-                            output_path
-                        ]
+                        if use_filters:
+                            # 带滤镜的处理（较慢）
+                            fade_duration = min(self.padding_ms / 1000.0, 0.5)
+                            ffmpeg_cmd = [
+                                'ffmpeg', '-y',
+                                '-i', audio_path,
+                                '-ss', f'{start_sec:.3f}',
+                                '-t', f'{duration_sec:.3f}',
+                                '-af', f'afade=in:d={fade_duration:.3f},afade=out:d={fade_duration:.3f}',
+                                '-c:a', 'aac',  # 保持AAC格式
+                                '-b:a', '128k',  # 合理的比特率
+                                output_path
+                            ]
+                        else:
+                            # 🚀 快速模式：流复制，不重编码
+                            ffmpeg_cmd = [
+                                'ffmpeg', '-y',
+                                '-ss', f'{start_sec:.3f}',  # 放在-i前面，使用快速seek
+                                '-i', audio_path,
+                                '-t', f'{duration_sec:.3f}',
+                                '-c:a', 'copy',  # 直接复制音频流，不重编码
+                                '-avoid_negative_ts', 'make_zero',  # 避免时间戳问题
+                                output_path
+                            ]
                         
                         self.logger.info(f"📝 ffmpeg命令: {' '.join(ffmpeg_cmd)}")
                         
@@ -431,35 +446,28 @@ class AudioSegmenter:
                     if output_size == 0:
                         raise ValueError(f"ffmpeg生成空文件: {output_path}")
                     
-                    # 使用ffprobe验证生成的音频文件
-                    try:
-                        probe_cmd = [
-                            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-                            '-show_format', output_path
-                        ]
-                        probe_result = await asyncio.to_thread(
-                            subprocess.run, probe_cmd,
-                            capture_output=True, text=True, check=True
-                        )
-                        
-                        import json
-                        output_info = json.loads(probe_result.stdout)
-                        output_duration = float(output_info['format']['duration'])
-                        
-                        self.logger.info(f"✅ 文件生成成功: {output_size} bytes, 时长: {output_duration:.3f}s")
-                        
-                        # 检查时长是否合理
-                        expected_duration = duration_sec if len(segments_to_concat) == 1 else clip_info['total_duration_ms'] / 1000.0
-                        duration_diff = abs(output_duration - expected_duration)
-                        
-                        if duration_diff > 1.0:  # 超过1秒差异
-                            self.logger.warning(f"⚠️ 时长偏差较大: 期望{expected_duration:.3f}s, 实际{output_duration:.3f}s, 差异{duration_diff:.3f}s")
-                        
-                        if output_duration < 0.1:  # 少于0.1秒
-                            self.logger.warning(f"⚠️ 生成的音频时长过短: {output_duration:.3f}s，可能是空白音频")
+                    # 🚀 优化：只在调试模式下验证
+                    if getattr(self, 'debug_mode', False):
+                        # 使用ffprobe验证生成的音频文件
+                        try:
+                            probe_cmd = [
+                                'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+                                '-show_format', output_path
+                            ]
+                            probe_result = await asyncio.to_thread(
+                                subprocess.run, probe_cmd,
+                                capture_output=True, text=True, check=True
+                            )
                             
-                    except Exception as e:
-                        self.logger.warning(f"无法验证输出音频信息: {e}")
+                            import json
+                            output_info = json.loads(probe_result.stdout)
+                            output_duration = float(output_info['format']['duration'])
+                            
+                            self.logger.info(f"✅ 文件生成成功: {output_size} bytes, 时长: {output_duration:.3f}s")
+                        except Exception as e:
+                            self.logger.warning(f"ffprobe验证失败: {e}")
+                    else:
+                        self.logger.info(f"✅ 文件生成成功: {output_size} bytes")
                     
                     # 上传到R2
                     with open(output_path, 'rb') as f:
@@ -500,9 +508,18 @@ class AudioSegmenter:
                 self.logger.error(f"处理切片 {clip_id} 异常: {e}")
                 return None
         
-        # 并行处理所有切片
-        self.logger.info(f"开始并行处理 {len(clips_library)} 个音频切片 (使用ffmpeg)")
-        tasks = [process_single_clip_with_ffmpeg(clip_id, clip_info) 
+        # 🚀 优化：限制并发数量以避免CPU过载
+        max_concurrent = min(3, len(clips_library))  # 最多3个并发任务
+        self.logger.info(f"开始处理 {len(clips_library)} 个音频切片 (并发数: {max_concurrent})")
+        
+        # 使用信号量限制并发
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def process_with_limit(clip_id, clip_info):
+            async with semaphore:
+                return await process_single_clip_with_ffmpeg(clip_id, clip_info)
+        
+        tasks = [process_with_limit(clip_id, clip_info) 
                 for clip_id, clip_info in clips_library.items()]
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -545,6 +562,10 @@ async def segment_audio(request: SegmentRequest):
     """音频切分接口"""
     logger.info(f"收到切分请求: audioKey={request.audioKey}, transcripts={len(request.transcripts)}")
     
+    # 🚀 性能优化开关
+    use_optimization = request.performanceMode if hasattr(request, 'performanceMode') else True
+    logger.info(f"使用优化模式: {use_optimization}")
+    
     try:
         # 创建R2客户端
         s3_client = create_r2_client(request.r2Config)
@@ -586,6 +607,9 @@ async def segment_audio(request: SegmentRequest):
                 min_duration_ms=request.minDurationMs,
                 padding_ms=request.paddingMs
             )
+            # 设置优化标志
+            segmenter.use_audio_filters = not use_optimization  # 优化模式下不使用滤镜
+            segmenter.debug_mode = False  # 生产环境关闭调试
             
             # 生成切片计划
             clips_library, sentence_to_clip_map = segmenter._create_audio_clips(request.transcripts)
