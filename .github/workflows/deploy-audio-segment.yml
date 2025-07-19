@@ -32,21 +32,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './waveshift-audio-segment-worker/package-lock.json'
 
       - name: Install Worker dependencies
         run: |
           cd waveshift-audio-segment-worker
-          npm ci
+          npm install
 
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: node-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            node-${{ runner.os }}-
 
       - name: Generate Cloudflare types
         run: |
