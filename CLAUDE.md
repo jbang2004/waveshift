@@ -360,11 +360,12 @@ wrangler secret put GEMINI_API_KEY
 
 #### **1. GitHub Actions 部署 (推荐)**
 ```bash
-# FFmpeg Worker (容器服务)
-npm run deploy:docker
+# 🚀 最简单方法：直接推送代码触发自动部署
+git add . && git commit -m "部署更新" && git push
 
-# 所有服务
-gh workflow run "Deploy All WaveShift Services"
+# 或手动触发特定工作流
+npm run deploy:docker              # FFmpeg Worker (容器服务)
+gh workflow run "Deploy All WaveShift Services"  # 所有服务
 ```
 
 #### **2. 本地智能部署**

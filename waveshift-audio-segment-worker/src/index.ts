@@ -163,10 +163,8 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
 
 // 添加 /segment 路由到主应用
 app.post('/segment', async (c) => {
-  let data: AudioSegmentRequest;
-  
   try {
-    data = await c.req.json() as AudioSegmentRequest;
+    const data = await c.req.json() as AudioSegmentRequest;
     
     console.log('[HTTP /segment] 收到切分请求:', {
       audioKey: data.audioKey,
@@ -221,33 +219,12 @@ app.post('/segment', async (c) => {
     return c.json(result);
     
   } catch (error) {
-    console.error('[HTTP /segment] 容器不可用，返回模拟数据:', error);
+    console.error('[HTTP /segment] 处理失败:', error);
     
-    // 生成模拟数据
-    const mockSegments = data.transcripts?.map((transcript: TranscriptItem, index: number) => {
-      const segmentKey = `${data.outputPrefix}/segment_${String(index + 1).padStart(3, '0')}.mp3`;
-      const startMs = transcript.startMs;
-      const endMs = transcript.endMs;
-      return {
-        segmentId: `mock_segment_${Date.now()}_${index}`,
-        audioKey: segmentKey,
-        speaker: transcript.speaker,
-        startMs: startMs,
-        endMs: endMs,
-        durationMs: endMs - startMs,
-        sentences: [{
-          sequence: transcript.sequence,
-          original: transcript.original,
-          translation: transcript.translation
-        }]
-      };
-    }) || [];
-
     return c.json({
-      success: true,
-      segments: mockSegments,
-      note: '容器不可用，返回模拟数据 - 容器部署完成后将处理真实音频',
-      containerStatus: 'unavailable'
+      success: false,
+      error: error instanceof Error ? error.message : 'Request processing failed',
+      containerStatus: 'error'
     });
   }
 });
