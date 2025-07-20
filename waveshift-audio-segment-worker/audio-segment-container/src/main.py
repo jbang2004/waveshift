@@ -99,280 +99,199 @@ class AudioSegmenter:
         
         return total
     
-    def _truncate_block_with_gaps(self, block: List[Dict]) -> List[Dict]:
-        """考虑gap的智能截断"""
-        if not block:
-            return block
-        
-        accumulated_duration = 0
-        sentences_to_include = []
-        
-        for i, sentence in enumerate(block):
-            # 当前句子时长
-            sentence_duration = sentence['duration']
-            
-            # 如果不是第一个句子，需要加上gap时长
-            gap_duration = self.gap_duration_ms if i > 0 else 0
-            
-            # 检查是否超过最大时长
-            if accumulated_duration + gap_duration + sentence_duration <= self.max_duration_ms:
-                sentences_to_include.append(sentence)
-                accumulated_duration += gap_duration + sentence_duration
-                self.logger.debug(f"包含句子{sentence['sequence']}: 累计{accumulated_duration}ms")
-            else:
-                # 超过限制，停止添加
-                self.logger.debug(f"截断: 句子{sentence['sequence']}会导致超过{self.max_duration_ms}ms")
-                break
-        
-        return sentences_to_include
+    # _truncate_block_with_gaps方法已移除 - 新算法使用 _split_long_group 实现更优雅的分割
     
-    def _merge_adjacent_short_blocks(self, blocks: List[List[Dict]]) -> List[List[Dict]]:
-        """智能合并相邻的同说话人短块，避免误删可合并的片段"""
-        if not blocks:
-            return blocks
-            
-        merged_blocks = []
-        i = 0
-        
-        while i < len(blocks):
-            current_block = blocks[i]
-            current_duration = self._calculate_total_duration_with_gaps(current_block)
-            current_speaker = current_block[0]['speaker']
-            
-            # 如果当前块已经足够长，直接保留
-            if current_duration >= self.min_duration_ms:
-                merged_blocks.append(current_block)
-                i += 1
-                continue
-            
-            # 当前块太短，尝试与后续同说话人块合并
-            merged = current_block.copy()
-            j = i + 1
-            
-            while j < len(blocks):
-                next_block = blocks[j]
-                next_speaker = next_block[0]['speaker']
-                
-                # 只合并同说话人的块
-                if next_speaker != current_speaker:
-                    break
-                    
-                # 尝试合并
-                potential_merged = merged + next_block
-                potential_duration = self._calculate_total_duration_with_gaps(potential_merged)
-                
-                # 如果合并后超过最大时长，停止合并
-                if potential_duration > self.max_duration_ms:
-                    break
-                    
-                # 执行合并
-                merged = potential_merged
-                self.logger.info(f"🔗 合并相邻短块: speaker={current_speaker}, "
-                               f"blocks {i+1}-{j+1}, duration {current_duration}ms -> {potential_duration}ms")
-                
-                # 如果合并后达到最小时长，可以停止（但继续检查是否能合并更多）
-                if potential_duration >= self.min_duration_ms:
-                    # 继续尝试合并，直到达到合理长度或最大时长
-                    j += 1
-                    if j < len(blocks) and blocks[j][0]['speaker'] == current_speaker:
-                        continue
-                    else:
-                        break
-                else:
-                    j += 1
-            
-            # 添加合并后的块（可能仍然很短，但已经是最好的结果）
-            merged_blocks.append(merged)
-            i = j  # 跳过已合并的块
-            
-        return merged_blocks
+    # _merge_adjacent_short_blocks方法已移除 - 新算法在分组阶段就无条件合并了所有相邻同说话人片段
     
-    def _process_speaker_block(self, block: List[Dict]) -> Tuple[List[Dict], bool]:
-        """处理单个说话人块：合并 -> 截断 -> 验证时长
-        
-        Returns:
-            (final_sentences, should_keep): 处理后的句子列表和是否保留的标志
-        """
-        if not block:
-            return [], False
-            
-        # 1. 计算合并后的总时长
-        total_duration = self._calculate_total_duration_with_gaps(block)
-        
-        self.logger.debug(f"📊 处理说话人块: speaker='{block[0]['speaker']}', "
-                         f"sentences={len(block)}, total_duration={total_duration}ms")
-        
-        # 2. 如果超过最大时长，进行智能截断
-        if total_duration > self.max_duration_ms:
-            self.logger.info(f"📏 块时长{total_duration}ms超过最大值{self.max_duration_ms}ms，执行截断")
-            final_sentences = self._truncate_block_with_gaps(block)
-        else:
-            # 块大小合适，直接使用
-            final_sentences = block
-        
-        # 3. 计算截断后的最终时长
-        final_duration = self._calculate_total_duration_with_gaps(final_sentences)
-        
-        # 4. 更宽松的保留策略：只丢弃极短的孤立片段
-        # 如果是多句子块，即使略短也保留（因为已经尝试过合并）
-        if len(final_sentences) > 1:
-            # 多句子块更宽松，只要超过1000ms就保留
-            if final_duration < 1000:
-                self.logger.warning(f"🗑️ 丢弃极短多句块: speaker='{block[0]['speaker']}', "
-                               f"sentences={len(final_sentences)}, duration={final_duration}ms < 1000ms")
-                return final_sentences, False
-        else:
-            # 单句子块使用标准阈值
-            if final_duration < self.min_duration_ms:
-                self.logger.info(f"🗑️ 丢弃过短单句: speaker='{block[0]['speaker']}', "
-                               f"sequence={final_sentences[0]['sequence']}, duration={final_duration}ms < {self.min_duration_ms}ms")
-                return final_sentences, False
-        
-        self.logger.info(f"✅ 保留有效片段: speaker='{block[0]['speaker']}', "
-                        f"sentences={len(final_sentences)}, final_duration={final_duration}ms")
-        return final_sentences, True
+    # _process_speaker_block方法已移除 - 新算法通过 _process_speaker_groups 统一处理
     
     def _create_audio_clips(self, transcripts: List[TranscriptItem]) -> Tuple[Dict, Dict]:
-        """根据转录数据创建音频切片计划"""
+        """优雅的音频切片算法：先合并所有相邻同说话人片段，再智能分割"""
         self.logger.info(f"🎬 开始处理 {len(transcripts)} 个转录项")
         
-        # 分析时间戳范围
+        # Step 1: 预处理 - 提取有效语音句子
+        sentences = self._extract_speech_sentences(transcripts)
+        
+        if not sentences:
+            self.logger.warning("⚠️ 没有有效的语音句子，返回空结果")
+            return {}, {}
+        
+        # Step 2: 按说话人分组 - 无条件合并所有相邻同说话人片段
+        speaker_groups = self._group_by_speaker(sentences)
+        
+        # Step 3: 处理每个说话人组 - 分割长组，保留合理组
+        final_clips = self._process_speaker_groups(speaker_groups)
+        
+        # Step 4: 生成clip信息和句子映射
+        clips_library, sentence_to_clip_map = self._generate_clip_info(final_clips)
+        
+        return clips_library, sentence_to_clip_map
+    
+    def _extract_speech_sentences(self, transcripts: List[TranscriptItem]) -> List[Dict]:
+        """提取和预处理有效的语音句子"""
+        sentences = []
         speech_items = [t for t in transcripts if t.content_type == 'speech']
+        
         if speech_items:
             min_time = min(t.startMs for t in speech_items)
             max_time = max(t.endMs for t in speech_items)
             self.logger.info(f"📊 转录时间戳范围: {min_time}ms - {max_time}ms ({(max_time-min_time)/1000:.1f}秒)")
         
-        # 🎯 精确时间戳预处理：直接使用转录时间戳，无padding
-        sentences = []
         for i, item in enumerate(transcripts):
-            self.logger.debug(f"转录项 {i}: sequence={item.sequence}, type={item.content_type}, "
-                            f"start={item.startMs}ms, end={item.endMs}ms, speaker='{item.speaker}', "
-                            f"text='{item.original[:50]}...'")
-            
             if item.content_type != 'speech':
-                self.logger.debug(f"  跳过非语音内容: {item.content_type}")
                 continue
             
-            start_ms = item.startMs
-            end_ms = item.endMs
-            
-            if start_ms >= end_ms:
-                self.logger.warning(f"  时间范围无效: start={start_ms}ms >= end={end_ms}ms，跳过")
+            if item.startMs >= item.endMs:
+                self.logger.warning(f"时间范围无效: sequence={item.sequence}, start={item.startMs}ms >= end={item.endMs}ms")
                 continue
             
-            # 🎯 精确时长计算，无padding
-            duration = end_ms - start_ms
-            
-            self.logger.debug(f"  精确时间: [{start_ms}-{end_ms}]ms ({duration}ms)")
-            
-            sentence_data = {
+            duration = item.endMs - item.startMs
+            if duration <= 0:
+                continue
+                
+            sentences.append({
                 'sequence': item.sequence,
                 'speaker': item.speaker,
                 'original': item.original,
                 'translation': item.translation,
-                'time_segment': [start_ms, end_ms],  # 精确时间边界
-                'duration': duration                # 精确时长
-            }
-            
-            if sentence_data['duration'] > 0:
-                sentences.append(sentence_data)
-                self.logger.debug(f"  ✅ 添加有效句子: {duration}ms")
-            else:
-                self.logger.warning(f"  ❌ 句子时长无效: {duration}ms")
-
-        self.logger.info(f"📝 预处理完成，获得 {len(sentences)} 个有效语音句子")
+                'time_segment': [item.startMs, item.endMs],
+                'duration': duration
+            })
+        
+        self.logger.info(f"📝 提取到 {len(sentences)} 个有效语音句子")
+        return sentences
+    
+    def _group_by_speaker(self, sentences: List[Dict]) -> List[List[Dict]]:
+        """按说话人分组：只要相邻且同说话人就无条件合并"""
         if not sentences:
-            self.logger.warning("⚠️ 没有有效的语音句子，返回空结果")
-            return {}, {}
-
-        # 🔧 改进的分组策略：更宽松的连续性判断
-        large_blocks = []
-        if sentences:
-            current_block = [sentences[0]]
-            for i in range(1, len(sentences)):
-                current_sentence = sentences[i]
-                last_sentence = current_block[-1]
-                
-                # 检查说话人是否相同（移除严格的序列连续性要求）
-                same_speaker = current_sentence['speaker'] == last_sentence['speaker']
-                # 允许序列号有小跳跃（例如中间有non-speech被过滤）
-                sequence_gap = current_sentence['sequence'] - last_sentence['sequence']
-                reasonable_gap = sequence_gap <= 3  # 允许最多跳过2个序号
-                
-                if same_speaker and reasonable_gap:
-                    current_block.append(current_sentence)
+            return []
+            
+        speaker_groups = []
+        current_group = [sentences[0]]
+        
+        for sentence in sentences[1:]:
+            if sentence['speaker'] == current_group[-1]['speaker']:
+                # 同说话人，无条件合并
+                current_group.append(sentence)
+            else:
+                # 说话人变化，保存当前组，开始新组
+                speaker_groups.append(current_group)
+                current_group = [sentence]
+        
+        # 添加最后一组
+        speaker_groups.append(current_group)
+        
+        self.logger.info(f"🎯 按说话人分组完成，共 {len(speaker_groups)} 个组")
+        for i, group in enumerate(speaker_groups):
+            duration = self._calculate_total_duration_with_gaps(group)
+            sequences = [s['sequence'] for s in group]
+            self.logger.debug(f"  组{i+1}: speaker={group[0]['speaker']}, "
+                            f"sentences={len(group)}, duration={duration}ms, sequences={sequences}")
+        
+        return speaker_groups
+    def _process_speaker_groups(self, speaker_groups: List[List[Dict]]) -> List[List[Dict]]:
+        """处理每个说话人组：分割长组，过滤短组"""
+        final_clips = []
+        
+        for i, group in enumerate(speaker_groups):
+            group_duration = self._calculate_total_duration_with_gaps(group)
+            speaker = group[0]['speaker']
+            
+            self.logger.debug(f"处理组{i+1}: speaker={speaker}, "
+                            f"sentences={len(group)}, duration={group_duration}ms")
+            
+            # 如果组太长，智能分割
+            if group_duration > self.max_duration_ms:
+                sub_clips = self._split_long_group(group)
+                self.logger.info(f"📏 分割超长组: speaker={speaker}, "
+                               f"原始{len(group)}句({group_duration}ms) → {len(sub_clips)}个片段")
+            else:
+                sub_clips = [group]
+            
+            # 过滤过短的片段
+            for clip in sub_clips:
+                clip_duration = self._calculate_total_duration_with_gaps(clip)
+                if self._should_keep_clip(clip, clip_duration):
+                    final_clips.append(clip)
+                    self.logger.debug(f"✅ 保留片段: speaker={speaker}, "
+                                     f"sentences={len(clip)}, duration={clip_duration}ms")
                 else:
-                    large_blocks.append(current_block)
-                    current_block = [current_sentence]
-            large_blocks.append(current_block)
-
-        # 🎵 智能合并策略：相邻同说话人短块尝试合并
-        self.logger.info(f"📋 初始分组完成，共 {len(large_blocks)} 个块")
+                    sequences = [s['sequence'] for s in clip]
+                    self.logger.info(f"🗑️ 丢弃过短片段: speaker={speaker}, "
+                                   f"sentences={len(clip)}, duration={clip_duration}ms, sequences={sequences}")
         
-        # 显示初始分组情况
-        for i, block in enumerate(large_blocks):
-            duration = self._calculate_total_duration_with_gaps(block)
-            sequences = [s['sequence'] for s in block]
-            self.logger.debug(f"  块{i+1}: speaker={block[0]['speaker']}, "
-                            f"sentences={len(block)}, duration={duration}ms, sequences={sequences}")
+        self.logger.info(f"🎯 最终生成 {len(final_clips)} 个有效音频片段")
+        return final_clips
+    
+    def _split_long_group(self, group: List[Dict]) -> List[List[Dict]]:
+        """智能分割超长组：贪心算法，尽可能多地包含句子"""
+        clips = []
+        current_clip = []
         
-        # 🔧 二次处理：合并相邻的同说话人短块
-        optimized_blocks = self._merge_adjacent_short_blocks(large_blocks)
-        self.logger.info(f"🔄 智能合并后，优化为 {len(optimized_blocks)} 个块")
+        for sentence in group:
+            # 尝试添加当前句子
+            test_clip = current_clip + [sentence]
+            test_duration = self._calculate_total_duration_with_gaps(test_clip)
+            
+            if test_duration <= self.max_duration_ms:
+                # 可以添加
+                current_clip = test_clip
+            else:
+                # 会超时，保存当前片段并开始新片段
+                if current_clip:
+                    clips.append(current_clip)
+                current_clip = [sentence]
         
+        # 添加最后一个片段
+        if current_clip:
+            clips.append(current_clip)
+        
+        return clips
+    
+    def _should_keep_clip(self, clip: List[Dict], duration: int) -> bool:
+        """判断是否保留音频片段：多句子组更宽松"""
+        if len(clip) > 1:
+            # 多句子片段更宽松：只要超过1秒
+            return duration >= 1000
+        else:
+            # 单句子片段使用标准阈值
+            return duration >= self.min_duration_ms
+    
+    def _generate_clip_info(self, final_clips: List[List[Dict]]) -> Tuple[Dict, Dict]:
+        """生成clip信息字典和句子映射"""
         clips_library = {}
-        sentence_to_clip_id_map = {}
-        processed_count = 0
-        kept_count = 0
-
-        for block in optimized_blocks:
-            processed_count += 1
-            
-            # 处理当前说话人块：合并 -> 截断 -> 验证
-            final_sentences, should_keep = self._process_speaker_block(block)
-            
-            if not should_keep:
-                # 添加详细信息帮助调试
-                sequences = [s['sequence'] for s in block]
-                self.logger.warning(f"⚠️ 即使合并后仍然过短，丢弃块: speaker={block[0]['speaker']}, "
-                                  f"sentences={len(block)}, sequences={sequences}")
-                continue  # 只有在尝试合并后仍然过短才丢弃
-                
-            kept_count += 1
-            
-            # 🎯 使用第一个句子的序号作为标识（更直观）
-            first_sequence = final_sentences[0]['sequence']
+        sentence_to_clip_map = {}
+        
+        for i, clip in enumerate(final_clips):
+            # 使用第一个句子的序号作为标识
+            first_sequence = clip[0]['sequence']
             clip_id = f"sequence_{first_sequence:04d}"
             
-            # 🎵 生成精确音频段列表（用于FFmpeg处理）
-            audio_segments = [s['time_segment'] for s in final_sentences]
+            # 生成音频段列表
+            audio_segments = [s['time_segment'] for s in clip]
             
             clips_library[clip_id] = {
-                "speaker": final_sentences[0]['speaker'],
-                "first_sequence": first_sequence,  # 用于文件命名
-                "total_duration_ms": self._calculate_total_duration_with_gaps(final_sentences),
-                "audio_segments": audio_segments,  # 精确音频段，用于FFmpeg
-                "gap_duration_ms": self.gap_duration_ms,  # gap信息
+                "speaker": clip[0]['speaker'],
+                "first_sequence": first_sequence,
+                "total_duration_ms": self._calculate_total_duration_with_gaps(clip),
+                "audio_segments": audio_segments,
+                "gap_duration_ms": self.gap_duration_ms,
                 "sentences": [{
-                    "sequence": s['sequence'], 
-                    "original": s['original'], 
+                    "sequence": s['sequence'],
+                    "original": s['original'],
                     "translation": s['translation']
-                } for s in final_sentences]
+                } for s in clip]
             }
             
-            # 映射sentence到clip（只映射最终包含的句子）
-            for sentence in final_sentences:
-                sentence_to_clip_id_map[sentence['sequence']] = clip_id
+            # 映射每个句子到其所属的clip
+            for sentence in clip:
+                sentence_to_clip_map[sentence['sequence']] = clip_id
             
-            self.logger.info(f"✅ 生成切片 {clip_id}: 序号{first_sequence}开始, {len(final_sentences)}个句子, "
-                           f"总时长{clips_library[clip_id]['total_duration_ms']}ms")
+            sequences = [s['sequence'] for s in clip]
+            self.logger.info(f"✅ 生成切片 {clip_id}: speaker={clip[0]['speaker']}, "
+                           f"sequences={sequences}, duration={clips_library[clip_id]['total_duration_ms']}ms")
         
-        self.logger.info(f"🎯 处理完成: 处理{processed_count}个块，保留{kept_count}个有效片段")
-
-        return clips_library, sentence_to_clip_id_map
-    
-    # _merge_overlapping_segments方法已移除 - 新算法使用精确时间段和gap机制
+        return clips_library, sentence_to_clip_map
     
     async def extract_and_save_clips(self, audio_path: str, clips_library: Dict, 
                                     output_prefix: str, s3_client, bucket_name: str) -> List[AudioSegment]:
