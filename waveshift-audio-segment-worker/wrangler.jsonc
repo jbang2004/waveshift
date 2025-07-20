@@ -30,7 +30,7 @@
     // 🎵 音频切片流式处理配置
     "GAP_DURATION_MS": "500",            // 句子间gap静音时长
     "MAX_DURATION_MS": "12000",          // 最大片段时长（包含gap）
-    "MIN_DURATION_MS": "1000",           // 最小保留时长（过滤孤立片段）
+    "MIN_DURATION_MS": "1000",           // 最小保留时长（仅过滤孤立单句片段，连续对话不受影响）
     "GAP_THRESHOLD_MULTIPLIER": "3"      // 间隔检测倍数（小于3倍gap时直接合并）
   },
   

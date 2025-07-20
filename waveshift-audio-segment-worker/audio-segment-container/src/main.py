@@ -204,11 +204,16 @@ class AudioSegmenter:
             )
             
             if decision.should_break:
-                segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
-                if segment:
-                    segments.append(segment)
-                    self._update_sentence_mapping(accumulator, segment.segmentId, sentence_to_segment_map)
-                accumulator = None
+                # 如果是READY_FOR_REUSE状态，强制清理避免后续错误复用
+                if accumulator and accumulator.state == AccumulatorState.READY_FOR_REUSE:
+                    self.logger.info(f"🧹 清理跨说话人的复用状态: {accumulator.speaker} -> {sentence.speaker}")
+                    accumulator = None
+                else:
+                    segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
+                    if segment:
+                        segments.append(segment)
+                        self._update_sentence_mapping(accumulator, segment.segmentId, sentence_to_segment_map)
+                    accumulator = None
             
             # 添加当前句子到累积器
             if not accumulator:
@@ -269,9 +274,11 @@ class AudioSegmenter:
         # 检查最小时长
         total_duration = accumulator.get_total_duration(self.gap_duration_ms)
         if len(accumulator.pending_sentences) == 1 and total_duration < self.min_duration_ms:
-            sequences = [s['sequence'] for s in accumulator.pending_sentences]
-            self.logger.info(f"🗑️ 丢弃过短的单句片段: speaker={accumulator.speaker}, "
-                           f"duration={total_duration}ms, sequences={sequences}")
+            sentence_details = [(s['sequence'], s['startMs'], s['endMs'], s['endMs']-s['startMs']) 
+                               for s in accumulator.pending_sentences]
+            self.logger.warning(f"🗑️ 丢弃过短单句片段: speaker={accumulator.speaker}, "
+                              f"计算时长={total_duration}ms < 最小时长={self.min_duration_ms}ms, "
+                              f"句子详情(sequence,start,end,实际时长)={sentence_details}")
             return None
         
         # 生成clip信息
