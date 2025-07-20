@@ -75,7 +75,7 @@ class AudioSegmenter:
         # 从环境变量读取配置参数
         self.gap_duration_ms = int(os.getenv('GAP_DURATION_MS', '500'))
         self.max_duration_ms = int(os.getenv('MAX_DURATION_MS', '12000'))  
-        self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '3000'))
+        self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '1500'))  # 改为1500ms
         
         self.logger = logger
         self.logger.info(f"🎵 AudioSegmenter初始化 - Gap:{self.gap_duration_ms}ms, "
@@ -126,26 +126,41 @@ class AudioSegmenter:
         
         return sentences_to_include
     
-    def _filter_isolated_short_segments(self, blocks: List[List[Dict]]) -> List[List[Dict]]:
-        """过滤孤立的短片段"""
-        filtered_blocks = []
+    def _process_speaker_block(self, block: List[Dict]) -> Tuple[List[Dict], bool]:
+        """处理单个说话人块：合并 -> 截断 -> 验证时长
         
-        for block in blocks:
-            # 计算包含gap的总时长
-            total_duration = self._calculate_total_duration_with_gaps(block)
+        Returns:
+            (final_sentences, should_keep): 处理后的句子列表和是否保留的标志
+        """
+        if not block:
+            return [], False
             
-            if len(block) == 1:
-                # 孤立片段（单句子）
-                if total_duration < self.min_duration_ms:
-                    self.logger.info(f"🗑️ 跳过孤立短片段: sequence={block[0]['sequence']}, "
-                                   f"speaker='{block[0]['speaker']}', duration={total_duration}ms < {self.min_duration_ms}ms")
-                    continue
-            
-            # 保留：多句子块 或 达到最小时长的单句子块
-            filtered_blocks.append(block)
-            self.logger.debug(f"✅ 保留片段: {len(block)}个句子, 总时长{total_duration}ms")
+        # 1. 计算合并后的总时长
+        total_duration = self._calculate_total_duration_with_gaps(block)
         
-        return filtered_blocks
+        self.logger.debug(f"📊 处理说话人块: speaker='{block[0]['speaker']}', "
+                         f"sentences={len(block)}, total_duration={total_duration}ms")
+        
+        # 2. 如果超过最大时长，进行智能截断
+        if total_duration > self.max_duration_ms:
+            self.logger.info(f"📏 块时长{total_duration}ms超过最大值{self.max_duration_ms}ms，执行截断")
+            final_sentences = self._truncate_block_with_gaps(block)
+        else:
+            # 块大小合适，直接使用
+            final_sentences = block
+        
+        # 3. 计算截断后的最终时长
+        final_duration = self._calculate_total_duration_with_gaps(final_sentences)
+        
+        # 4. 只有截断后仍然太短的片段才被丢弃
+        if final_duration < self.min_duration_ms:
+            self.logger.info(f"🗑️ 丢弃过短片段: speaker='{block[0]['speaker']}', "
+                           f"sentences={len(final_sentences)}, final_duration={final_duration}ms < {self.min_duration_ms}ms")
+            return final_sentences, False
+        
+        self.logger.info(f"✅ 保留有效片段: speaker='{block[0]['speaker']}', "
+                        f"sentences={len(final_sentences)}, final_duration={final_duration}ms")
+        return final_sentences, True
     
     def _create_audio_clips(self, transcripts: List[TranscriptItem]) -> Tuple[Dict, Dict]:
         """根据转录数据创建音频切片计划"""
@@ -220,38 +235,35 @@ class AudioSegmenter:
                     current_block = [current_sentence]
             large_blocks.append(current_block)
 
-        # 🗑️ 过滤孤立短片段
-        self.logger.info(f"📋 说话人分组完成，共 {len(large_blocks)} 个块，开始过滤孤立短片段")
-        filtered_blocks = self._filter_isolated_short_segments(large_blocks)
-        self.logger.info(f"🎯 过滤完成，保留 {len(filtered_blocks)} 个有效块")
-
-        # 🎵 生成音频切片
+        # 🎵 重构的音频切片生成：合并 -> 截断 -> 过滤
+        self.logger.info(f"📋 说话人分组完成，共 {len(large_blocks)} 个块，开始智能处理")
+        
         clips_library = {}
         sentence_to_clip_id_map = {}
-        clip_id_counter = 0
+        processed_count = 0
+        kept_count = 0
 
-        for block in filtered_blocks:
-            # 计算包含gap的总时长
-            block_total_duration = self._calculate_total_duration_with_gaps(block)
+        for block in large_blocks:
+            processed_count += 1
             
-            # 所有过滤后的块都应该被处理（已经过滤了不符合条件的）
-            clip_id_counter += 1
-            clip_id = f"segment_{clip_id_counter:04d}"
+            # 处理当前说话人块：合并 -> 截断 -> 验证
+            final_sentences, should_keep = self._process_speaker_block(block)
             
-            # 🎯 如果总时长超过max_duration_ms，需要智能截断
-            if block_total_duration > self.max_duration_ms:
-                # 需要智能截断
-                self.logger.info(f"📏 块时长{block_total_duration}ms超过最大值{self.max_duration_ms}ms，执行截断")
-                final_sentences = self._truncate_block_with_gaps(block)
-            else:
-                # 块大小合适，直接使用
-                final_sentences = block
+            if not should_keep:
+                continue  # 跳过过短的片段
+                
+            kept_count += 1
+            
+            # 🎯 使用第一个句子的序号作为标识（更直观）
+            first_sequence = final_sentences[0]['sequence']
+            clip_id = f"sequence_{first_sequence:04d}"
             
             # 🎵 生成精确音频段列表（用于FFmpeg处理）
             audio_segments = [s['time_segment'] for s in final_sentences]
             
             clips_library[clip_id] = {
-                "speaker": block[0]['speaker'],
+                "speaker": final_sentences[0]['speaker'],
+                "first_sequence": first_sequence,  # 用于文件命名
                 "total_duration_ms": self._calculate_total_duration_with_gaps(final_sentences),
                 "audio_segments": audio_segments,  # 精确音频段，用于FFmpeg
                 "gap_duration_ms": self.gap_duration_ms,  # gap信息
@@ -266,8 +278,10 @@ class AudioSegmenter:
             for sentence in final_sentences:
                 sentence_to_clip_id_map[sentence['sequence']] = clip_id
             
-            self.logger.info(f"✅ 生成切片 {clip_id}: {len(final_sentences)}个句子, "
+            self.logger.info(f"✅ 生成切片 {clip_id}: 序号{first_sequence}开始, {len(final_sentences)}个句子, "
                            f"总时长{clips_library[clip_id]['total_duration_ms']}ms")
+        
+        self.logger.info(f"🎯 处理完成: 处理{processed_count}个块，保留{kept_count}个有效片段")
 
         return clips_library, sentence_to_clip_id_map
     
@@ -361,8 +375,10 @@ class AudioSegmenter:
         async def process_single_clip_with_ffmpeg(clip_id: str, clip_info: Dict) -> Optional[AudioSegment]:
             """使用ffmpeg处理单个切片"""
             try:
+                # 🎯 使用序号命名文件（更直观）
                 speaker_clean = clip_info['speaker'].replace(' ', '_').replace('/', '_')
-                audio_key = f"{output_prefix}/{clip_id}_{speaker_clean}.wav"
+                first_sequence = clip_info.get('first_sequence', 0)
+                audio_key = f"{output_prefix}/{first_sequence:04d}_{speaker_clean}.wav"
                 
                 # 创建临时输出文件
                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
