@@ -126,6 +126,67 @@ class AudioSegmenter:
         
         return sentences_to_include
     
+    def _merge_adjacent_short_blocks(self, blocks: List[List[Dict]]) -> List[List[Dict]]:
+        """智能合并相邻的同说话人短块，避免误删可合并的片段"""
+        if not blocks:
+            return blocks
+            
+        merged_blocks = []
+        i = 0
+        
+        while i < len(blocks):
+            current_block = blocks[i]
+            current_duration = self._calculate_total_duration_with_gaps(current_block)
+            current_speaker = current_block[0]['speaker']
+            
+            # 如果当前块已经足够长，直接保留
+            if current_duration >= self.min_duration_ms:
+                merged_blocks.append(current_block)
+                i += 1
+                continue
+            
+            # 当前块太短，尝试与后续同说话人块合并
+            merged = current_block.copy()
+            j = i + 1
+            
+            while j < len(blocks):
+                next_block = blocks[j]
+                next_speaker = next_block[0]['speaker']
+                
+                # 只合并同说话人的块
+                if next_speaker != current_speaker:
+                    break
+                    
+                # 尝试合并
+                potential_merged = merged + next_block
+                potential_duration = self._calculate_total_duration_with_gaps(potential_merged)
+                
+                # 如果合并后超过最大时长，停止合并
+                if potential_duration > self.max_duration_ms:
+                    break
+                    
+                # 执行合并
+                merged = potential_merged
+                self.logger.info(f"🔗 合并相邻短块: speaker={current_speaker}, "
+                               f"blocks {i+1}-{j+1}, duration {current_duration}ms -> {potential_duration}ms")
+                
+                # 如果合并后达到最小时长，可以停止（但继续检查是否能合并更多）
+                if potential_duration >= self.min_duration_ms:
+                    # 继续尝试合并，直到达到合理长度或最大时长
+                    j += 1
+                    if j < len(blocks) and blocks[j][0]['speaker'] == current_speaker:
+                        continue
+                    else:
+                        break
+                else:
+                    j += 1
+            
+            # 添加合并后的块（可能仍然很短，但已经是最好的结果）
+            merged_blocks.append(merged)
+            i = j  # 跳过已合并的块
+            
+        return merged_blocks
+    
     def _process_speaker_block(self, block: List[Dict]) -> Tuple[List[Dict], bool]:
         """处理单个说话人块：合并 -> 截断 -> 验证时长
         
@@ -152,11 +213,20 @@ class AudioSegmenter:
         # 3. 计算截断后的最终时长
         final_duration = self._calculate_total_duration_with_gaps(final_sentences)
         
-        # 4. 只有截断后仍然太短的片段才被丢弃
-        if final_duration < self.min_duration_ms:
-            self.logger.info(f"🗑️ 丢弃过短片段: speaker='{block[0]['speaker']}', "
-                           f"sentences={len(final_sentences)}, final_duration={final_duration}ms < {self.min_duration_ms}ms")
-            return final_sentences, False
+        # 4. 更宽松的保留策略：只丢弃极短的孤立片段
+        # 如果是多句子块，即使略短也保留（因为已经尝试过合并）
+        if len(final_sentences) > 1:
+            # 多句子块更宽松，只要超过1000ms就保留
+            if final_duration < 1000:
+                self.logger.warning(f"🗑️ 丢弃极短多句块: speaker='{block[0]['speaker']}', "
+                               f"sentences={len(final_sentences)}, duration={final_duration}ms < 1000ms")
+                return final_sentences, False
+        else:
+            # 单句子块使用标准阈值
+            if final_duration < self.min_duration_ms:
+                self.logger.info(f"🗑️ 丢弃过短单句: speaker='{block[0]['speaker']}', "
+                               f"sequence={final_sentences[0]['sequence']}, duration={final_duration}ms < {self.min_duration_ms}ms")
+                return final_sentences, False
         
         self.logger.info(f"✅ 保留有效片段: speaker='{block[0]['speaker']}', "
                         f"sentences={len(final_sentences)}, final_duration={final_duration}ms")
@@ -216,7 +286,7 @@ class AudioSegmenter:
             self.logger.warning("⚠️ 没有有效的语音句子，返回空结果")
             return {}, {}
 
-        # 识别同说话人连续块
+        # 🔧 改进的分组策略：更宽松的连续性判断
         large_blocks = []
         if sentences:
             current_block = [sentences[0]]
@@ -224,33 +294,50 @@ class AudioSegmenter:
                 current_sentence = sentences[i]
                 last_sentence = current_block[-1]
                 
-                # 检查说话人是否相同且序列连续
+                # 检查说话人是否相同（移除严格的序列连续性要求）
                 same_speaker = current_sentence['speaker'] == last_sentence['speaker']
-                continuous = current_sentence['sequence'] == last_sentence['sequence'] + 1
+                # 允许序列号有小跳跃（例如中间有non-speech被过滤）
+                sequence_gap = current_sentence['sequence'] - last_sentence['sequence']
+                reasonable_gap = sequence_gap <= 3  # 允许最多跳过2个序号
                 
-                if same_speaker and continuous:
+                if same_speaker and reasonable_gap:
                     current_block.append(current_sentence)
                 else:
                     large_blocks.append(current_block)
                     current_block = [current_sentence]
             large_blocks.append(current_block)
 
-        # 🎵 重构的音频切片生成：合并 -> 截断 -> 过滤
-        self.logger.info(f"📋 说话人分组完成，共 {len(large_blocks)} 个块，开始智能处理")
+        # 🎵 智能合并策略：相邻同说话人短块尝试合并
+        self.logger.info(f"📋 初始分组完成，共 {len(large_blocks)} 个块")
+        
+        # 显示初始分组情况
+        for i, block in enumerate(large_blocks):
+            duration = self._calculate_total_duration_with_gaps(block)
+            sequences = [s['sequence'] for s in block]
+            self.logger.debug(f"  块{i+1}: speaker={block[0]['speaker']}, "
+                            f"sentences={len(block)}, duration={duration}ms, sequences={sequences}")
+        
+        # 🔧 二次处理：合并相邻的同说话人短块
+        optimized_blocks = self._merge_adjacent_short_blocks(large_blocks)
+        self.logger.info(f"🔄 智能合并后，优化为 {len(optimized_blocks)} 个块")
         
         clips_library = {}
         sentence_to_clip_id_map = {}
         processed_count = 0
         kept_count = 0
 
-        for block in large_blocks:
+        for block in optimized_blocks:
             processed_count += 1
             
             # 处理当前说话人块：合并 -> 截断 -> 验证
             final_sentences, should_keep = self._process_speaker_block(block)
             
             if not should_keep:
-                continue  # 跳过过短的片段
+                # 添加详细信息帮助调试
+                sequences = [s['sequence'] for s in block]
+                self.logger.warning(f"⚠️ 即使合并后仍然过短，丢弃块: speaker={block[0]['speaker']}, "
+                                  f"sentences={len(block)}, sequences={sequences}")
+                continue  # 只有在尝试合并后仍然过短才丢弃
                 
             kept_count += 1
             
