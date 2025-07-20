@@ -1,10 +1,9 @@
 export interface AudioSegmentRequest {
   audioKey: string;             // R2 中的音频文件 key
   transcripts: TranscriptItem[]; // 转录数据
-  goalDurationMs?: number;      // 目标片段时长（毫秒）
-  minDurationMs?: number;       // 最小片段时长（毫秒）  
-  paddingMs?: number;           // 片段间的padding（毫秒）
   outputPrefix: string;         // 输出文件前缀
+  // 注意：切分参数现在通过环境变量配置：
+  // GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 }
 
 export interface TranscriptItem {

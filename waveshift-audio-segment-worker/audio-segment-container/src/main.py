@@ -49,9 +49,6 @@ class R2Config(BaseModel):
 class SegmentRequest(BaseModel):
     audioKey: str
     transcripts: List[TranscriptItem]
-    goalDurationMs: int = 10000  # 默认10秒
-    minDurationMs: int = 3000    # 默认3秒
-    paddingMs: int = 500         # 默认500ms
     outputPrefix: str
     r2Config: R2Config
 
@@ -314,7 +311,7 @@ class AudioSegmenter:
             if speech_transcripts:
                 all_segments = []
                 for clip_info in speech_transcripts:
-                    all_segments.extend(clip_info['segments_to_concatenate'])
+                    all_segments.extend(clip_info['audio_segments'])
                 
                 if all_segments:
                     transcript_start = min(seg[0] for seg in all_segments)
@@ -466,28 +463,7 @@ class AudioSegmenter:
                     if output_size == 0:
                         raise ValueError(f"ffmpeg生成空文件: {output_path}")
                     
-                    # 🚀 优化：只在调试模式下验证
-                    if getattr(self, 'debug_mode', False):
-                        # 使用ffprobe验证生成的音频文件
-                        try:
-                            probe_cmd = [
-                                'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-                                '-show_format', output_path
-                            ]
-                            probe_result = await asyncio.to_thread(
-                                subprocess.run, probe_cmd,
-                                capture_output=True, text=True, check=True
-                            )
-                            
-                            import json
-                            output_info = json.loads(probe_result.stdout)
-                            output_duration = float(output_info['format']['duration'])
-                            
-                            self.logger.info(f"✅ 文件生成成功: {output_size} bytes, 时长: {output_duration:.3f}s")
-                        except Exception as e:
-                            self.logger.warning(f"ffprobe验证失败: {e}")
-                    else:
-                        self.logger.info(f"✅ 文件生成成功: {output_size} bytes")
+                    self.logger.info(f"✅ 文件生成成功: {output_size} bytes")
                     
                     # 上传到R2
                     with open(output_path, 'rb') as f:
@@ -509,8 +485,8 @@ class AudioSegmenter:
                         'segmentId': clip_id,
                         'audioKey': audio_key,
                         'speaker': clip_info['speaker'],
-                        'startMs': clip_info['segments_to_concatenate'][0][0],
-                        'endMs': clip_info['segments_to_concatenate'][-1][1],
+                        'startMs': clip_info['audio_segments'][0][0],
+                        'endMs': clip_info['audio_segments'][-1][1],
                         'durationMs': clip_info['total_duration_ms'],
                         'sentences': clip_info['sentences']
                     }
@@ -582,9 +558,7 @@ async def segment_audio(request: SegmentRequest):
     """音频切分接口"""
     logger.info(f"收到切分请求: audioKey={request.audioKey}, transcripts={len(request.transcripts)}")
     
-    # 🚀 性能优化开关
-    use_optimization = request.performanceMode if hasattr(request, 'performanceMode') else True
-    logger.info(f"使用优化模式: {use_optimization}")
+    # 已移除性能优化开关 - 新算法已彻底移除fade逻辑
     
     try:
         # 创建R2客户端
@@ -623,7 +597,6 @@ async def segment_audio(request: SegmentRequest):
             
             # 🎵 创建切分器 - 从环境变量读取配置
             segmenter = AudioSegmenter()
-            # 优化标志已不再需要，新算法彻底移除了fade
             
             # 生成切片计划
             clips_library, sentence_to_clip_map = segmenter._create_audio_clips(request.transcripts)

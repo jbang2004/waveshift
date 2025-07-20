@@ -22,17 +22,15 @@ interface AudioSegmentService {
 		audioKey: string;
 		transcripts: Array<{
 			sequence: number;
-			start: string;
-			end: string;
+			startMs: number;     // 毫秒时间戳
+			endMs: number;       // 毫秒时间戳
 			speaker: string;
 			original: string;
 			translation?: string;
 			content_type: string;
 		}>;
-		goalDurationMs?: number;
-		minDurationMs?: number;
-		paddingMs?: number;
 		outputPrefix: string;
+		// 注意：切分参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 	}): Promise<{
 		success: boolean;
 		segments?: Array<{

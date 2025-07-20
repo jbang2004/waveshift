@@ -21,18 +21,16 @@ async function testContainerStatus() {
     transcripts: [
       {
         sequence: 1,
-        start: '0m0s0ms',
-        end: '0m3s0ms',
+        startMs: 0,         // 毫秒时间戳
+        endMs: 3000,        // 毫秒时间戳  
         speaker: 'TestSpeaker',
         original: '测试音频片段',
         translation: 'Test audio segment',
         content_type: 'speech'
       }
     ],
-    goalDurationMs: 10000,
-    minDurationMs: 3000,
-    paddingMs: 500,
     outputPrefix: 'test/output'
+    // 参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
   };
   
   try {

@@ -255,10 +255,8 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				const result = await env.AUDIO_SEGMENT_SERVICE.segment({
 					audioKey: audioKey,
 					transcripts,
-					goalDurationMs: 10000,  // 10秒目标时长
-					minDurationMs: 3000,    // 3秒最小时长
-					paddingMs: 500,         // 500ms padding
 					outputPrefix
+					// 注意：切分参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 				});
 				
 				if (!result.success) {
