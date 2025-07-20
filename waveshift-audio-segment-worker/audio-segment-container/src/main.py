@@ -68,513 +68,311 @@ class SegmentResponse(BaseModel):
     error: Optional[str] = None
 
 
+class StreamingAccumulator:
+    """流式累积器：维护当前音频片段的处理状态"""
+    def __init__(self, first_sentence: Dict):
+        self.speaker = first_sentence['speaker']
+        self.time_ranges = [[first_sentence['startMs'], first_sentence['endMs']]]
+        self.pending_sentences = [first_sentence]
+        self.audio_url = None  # 上传后的音频地址，供后续句子复用
+        self.sequence_start = first_sentence['sequence']
+        
+    def get_total_duration(self, gap_duration_ms: int) -> int:
+        """计算累积器的总时长（包含gaps）"""
+        audio_duration = sum(end - start for start, end in self.time_ranges)
+        gap_count = max(0, len(self.time_ranges) - 1)
+        return audio_duration + (gap_count * gap_duration_ms)
+        
+    def clear_sentences(self):
+        """清空待处理句子但保留speaker和audio_url"""
+        self.pending_sentences = []
+        self.time_ranges = []
+
+
 class AudioSegmenter:
-    """音频切分服务 - 基于精确时间戳和Gap机制的智能音频切片"""
+    """音频切分服务 - 流式处理的智能音频切片"""
     
     def __init__(self):
         # 从环境变量读取配置参数
         self.gap_duration_ms = int(os.getenv('GAP_DURATION_MS', '500'))
         self.max_duration_ms = int(os.getenv('MAX_DURATION_MS', '12000'))  
-        self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '1500'))  # 改为1500ms
+        self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '3000'))
+        self.gap_threshold_multiplier = int(os.getenv('GAP_THRESHOLD_MULTIPLIER', '3'))
         
         self.logger = logger
         self.logger.info(f"🎵 AudioSegmenter初始化 - Gap:{self.gap_duration_ms}ms, "
-                        f"Max:{self.max_duration_ms}ms, Min:{self.min_duration_ms}ms")
+                        f"Max:{self.max_duration_ms}ms, Min:{self.min_duration_ms}ms, "
+                        f"GapThreshold:{self.gap_duration_ms * self.gap_threshold_multiplier}ms")
         
-    # 时间转换函数已移除 - 直接使用毫秒格式，无需转换
-    
-    def _calculate_total_duration_with_gaps(self, block: List[Dict]) -> int:
-        """计算包含gap的总时长"""
-        if not block:
-            return 0
+    async def process_sentences_streaming(self, transcripts: List[TranscriptItem], 
+                                        audio_path: str, output_prefix: str, 
+                                        s3_client, bucket_name: str) -> Tuple[List[AudioSegment], Dict[int, str]]:
+        """流式处理：一次遍历，实时决策，立即上传"""
+        segments = []
+        sentence_to_segment_map = {}
+        accumulator = None
         
-        # 音频总时长
-        audio_duration = sum(s['duration'] for s in block)
-        
-        # Gap总时长 = (句子数量 - 1) * gap_duration_ms
-        gap_duration = (len(block) - 1) * self.gap_duration_ms
-        
-        total = audio_duration + gap_duration
-        self.logger.debug(f"时长计算: 音频{audio_duration}ms + Gap{gap_duration}ms = {total}ms")
-        
-        return total
-    
-    # _truncate_block_with_gaps方法已移除 - 新算法使用 _split_long_group 实现更优雅的分割
-    
-    # _merge_adjacent_short_blocks方法已移除 - 新算法在分组阶段就无条件合并了所有相邻同说话人片段
-    
-    # _process_speaker_block方法已移除 - 新算法通过 _process_speaker_groups 统一处理
-    
-    def _create_audio_clips(self, transcripts: List[TranscriptItem]) -> Tuple[Dict, Dict]:
-        """优雅的音频切片算法：先合并所有相邻同说话人片段，再智能分割"""
-        self.logger.info(f"🎬 开始处理 {len(transcripts)} 个转录项")
-        
-        # Step 1: 预处理 - 提取有效语音句子
-        sentences = self._extract_speech_sentences(transcripts)
-        
-        if not sentences:
-            self.logger.warning("⚠️ 没有有效的语音句子，返回空结果")
-            return {}, {}
-        
-        # Step 2: 按说话人分组 - 无条件合并所有相邻同说话人片段
-        speaker_groups = self._group_by_speaker(sentences)
-        
-        # Step 3: 处理每个说话人组 - 分割长组，保留合理组
-        final_clips = self._process_speaker_groups(speaker_groups)
-        
-        # Step 4: 生成clip信息和句子映射
-        clips_library, sentence_to_clip_map = self._generate_clip_info(final_clips)
-        
-        return clips_library, sentence_to_clip_map
-    
-    def _extract_speech_sentences(self, transcripts: List[TranscriptItem]) -> List[Dict]:
-        """提取和预处理有效的语音句子"""
+        # 提取有效语音句子
         sentences = []
-        speech_items = [t for t in transcripts if t.content_type == 'speech']
-        
-        if speech_items:
-            min_time = min(t.startMs for t in speech_items)
-            max_time = max(t.endMs for t in speech_items)
-            self.logger.info(f"📊 转录时间戳范围: {min_time}ms - {max_time}ms ({(max_time-min_time)/1000:.1f}秒)")
-        
-        for i, item in enumerate(transcripts):
+        for item in transcripts:
             if item.content_type != 'speech':
                 continue
-            
             if item.startMs >= item.endMs:
-                self.logger.warning(f"时间范围无效: sequence={item.sequence}, start={item.startMs}ms >= end={item.endMs}ms")
                 continue
             
-            duration = item.endMs - item.startMs
-            if duration <= 0:
-                continue
-                
             sentences.append({
                 'sequence': item.sequence,
                 'speaker': item.speaker,
                 'original': item.original,
                 'translation': item.translation,
-                'time_segment': [item.startMs, item.endMs],
-                'duration': duration
+                'startMs': item.startMs,
+                'endMs': item.endMs,
+                'duration': item.endMs - item.startMs
             })
         
-        self.logger.info(f"📝 提取到 {len(sentences)} 个有效语音句子")
-        return sentences
-    
-    def _group_by_speaker(self, sentences: List[Dict]) -> List[List[Dict]]:
-        """按说话人分组：只要相邻且同说话人就无条件合并"""
-        if not sentences:
-            return []
-            
-        speaker_groups = []
-        current_group = [sentences[0]]
+        self.logger.info(f"🎬 开始流式处理 {len(sentences)} 个语音句子")
         
-        for sentence in sentences[1:]:
-            if sentence['speaker'] == current_group[-1]['speaker']:
-                # 同说话人，无条件合并
-                current_group.append(sentence)
+        for sentence in sentences:
+            # 判断是否需要发射当前累积器
+            if accumulator and (
+                sentence['speaker'] != accumulator.speaker or  # 说话人变化
+                self._should_start_new_accumulation(accumulator, sentence)  # 间隔过大
+            ):
+                # 发射当前累积器
+                segment = await self._emit_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
+                if segment:
+                    segments.append(segment)
+                    # 更新句子映射
+                    for s in accumulator.pending_sentences:
+                        sentence_to_segment_map[s['sequence']] = segment.segmentId
+                accumulator = None
+            
+            # 累积当前句子
+            if not accumulator:
+                accumulator = StreamingAccumulator(sentence)
             else:
-                # 说话人变化，保存当前组，开始新组
-                speaker_groups.append(current_group)
-                current_group = [sentence]
-        
-        # 添加最后一组
-        speaker_groups.append(current_group)
-        
-        self.logger.info(f"🎯 按说话人分组完成，共 {len(speaker_groups)} 个组")
-        for i, group in enumerate(speaker_groups):
-            duration = self._calculate_total_duration_with_gaps(group)
-            sequences = [s['sequence'] for s in group]
-            self.logger.debug(f"  组{i+1}: speaker={group[0]['speaker']}, "
-                            f"sentences={len(group)}, duration={duration}ms, sequences={sequences}")
-        
-        return speaker_groups
-    def _process_speaker_groups(self, speaker_groups: List[List[Dict]]) -> List[List[Dict]]:
-        """处理每个说话人组：分割长组，过滤短组"""
-        final_clips = []
-        
-        for i, group in enumerate(speaker_groups):
-            group_duration = self._calculate_total_duration_with_gaps(group)
-            speaker = group[0]['speaker']
+                self._accumulate_sentence(accumulator, sentence)
             
-            self.logger.debug(f"处理组{i+1}: speaker={speaker}, "
-                            f"sentences={len(group)}, duration={group_duration}ms")
-            
-            # 如果组太长，智能分割
-            if group_duration > self.max_duration_ms:
-                sub_clips = self._split_long_group(group)
-                self.logger.info(f"📏 分割超长组: speaker={speaker}, "
-                               f"原始{len(group)}句({group_duration}ms) → {len(sub_clips)}个片段")
-            else:
-                sub_clips = [group]
-            
-            # 过滤过短的片段
-            for clip in sub_clips:
-                clip_duration = self._calculate_total_duration_with_gaps(clip)
-                if self._should_keep_clip(clip, clip_duration):
-                    final_clips.append(clip)
-                    self.logger.debug(f"✅ 保留片段: speaker={speaker}, "
-                                     f"sentences={len(clip)}, duration={clip_duration}ms")
-                else:
-                    sequences = [s['sequence'] for s in clip]
-                    self.logger.info(f"🗑️ 丢弃过短片段: speaker={speaker}, "
-                                   f"sentences={len(clip)}, duration={clip_duration}ms, sequences={sequences}")
+            # 检查是否满载
+            if accumulator and self._is_accumulator_full(accumulator):
+                segment = await self._emit_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
+                if segment:
+                    segments.append(segment)
+                    for s in accumulator.pending_sentences:
+                        sentence_to_segment_map[s['sequence']] = segment.segmentId
+                # 保留speaker和audio_url供后续复用
+                accumulator.clear_sentences()
         
-        self.logger.info(f"🎯 最终生成 {len(final_clips)} 个有效音频片段")
-        return final_clips
+        # 处理最后的累积器
+        if accumulator and accumulator.pending_sentences:
+            segment = await self._emit_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
+            if segment:
+                segments.append(segment)
+                for s in accumulator.pending_sentences:
+                    sentence_to_segment_map[s['sequence']] = segment.segmentId
+        
+        self.logger.info(f"✅ 流式处理完成，生成 {len(segments)} 个音频片段")
+        return segments, sentence_to_segment_map
     
-    def _split_long_group(self, group: List[Dict]) -> List[List[Dict]]:
-        """智能分割超长组：贪心算法，尽可能多地包含句子"""
-        clips = []
-        current_clip = []
+    def _should_start_new_accumulation(self, accumulator: StreamingAccumulator, sentence: Dict) -> bool:
+        """判断是否需要开始新的累积（间隔过大）"""
+        if not accumulator.time_ranges:
+            return False
         
-        for sentence in group:
-            # 尝试添加当前句子
-            test_clip = current_clip + [sentence]
-            test_duration = self._calculate_total_duration_with_gaps(test_clip)
-            
-            if test_duration <= self.max_duration_ms:
-                # 可以添加
-                current_clip = test_clip
-            else:
-                # 会超时，保存当前片段并开始新片段
-                if current_clip:
-                    clips.append(current_clip)
-                current_clip = [sentence]
+        last_end = accumulator.time_ranges[-1][1]
+        gap = sentence['startMs'] - last_end
+        threshold = self.gap_duration_ms * self.gap_threshold_multiplier
         
-        # 添加最后一个片段
-        if current_clip:
-            clips.append(current_clip)
-        
-        return clips
+        return gap > threshold
     
-    def _should_keep_clip(self, clip: List[Dict], duration: int) -> bool:
-        """判断是否保留音频片段：多句子组更宽松"""
-        if len(clip) > 1:
-            # 多句子片段更宽松：只要超过1秒
-            return duration >= 1000
+    def _accumulate_sentence(self, accumulator: StreamingAccumulator, sentence: Dict):
+        """累积句子，智能处理时间范围"""
+        if accumulator.audio_url:
+            # 已有音频地址，直接复用（仅限同说话人）
+            sentence['audio_url'] = accumulator.audio_url
+            return
+        
+        # 检查间隔
+        last_end = accumulator.time_ranges[-1][1]
+        gap = sentence['startMs'] - last_end
+        threshold = self.gap_duration_ms * self.gap_threshold_multiplier
+        
+        if gap <= threshold:
+            # 小间隔：扩展最后一个时间范围
+            accumulator.time_ranges[-1][1] = sentence['endMs']
+            self.logger.debug(f"扩展时间范围: [{accumulator.time_ranges[-1][0]}, {accumulator.time_ranges[-1][1]}]")
         else:
-            # 单句子片段使用标准阈值
-            return duration >= self.min_duration_ms
-    
-    def _generate_clip_info(self, final_clips: List[List[Dict]]) -> Tuple[Dict, Dict]:
-        """生成clip信息字典和句子映射"""
-        clips_library = {}
-        sentence_to_clip_map = {}
+            # 大间隔：添加新时间范围
+            accumulator.time_ranges.append([sentence['startMs'], sentence['endMs']])
+            self.logger.debug(f"添加新时间范围: [{sentence['startMs']}, {sentence['endMs']}]")
         
-        for i, clip in enumerate(final_clips):
-            # 使用第一个句子的序号作为标识
-            first_sequence = clip[0]['sequence']
-            clip_id = f"sequence_{first_sequence:04d}"
-            
-            # 生成音频段列表
-            audio_segments = [s['time_segment'] for s in clip]
-            
-            clips_library[clip_id] = {
-                "speaker": clip[0]['speaker'],
-                "first_sequence": first_sequence,
-                "total_duration_ms": self._calculate_total_duration_with_gaps(clip),
-                "audio_segments": audio_segments,
-                "gap_duration_ms": self.gap_duration_ms,
-                "sentences": [{
-                    "sequence": s['sequence'],
-                    "original": s['original'],
-                    "translation": s['translation']
-                } for s in clip]
-            }
-            
-            # 映射每个句子到其所属的clip
-            for sentence in clip:
-                sentence_to_clip_map[sentence['sequence']] = clip_id
-            
-            sequences = [s['sequence'] for s in clip]
-            self.logger.info(f"✅ 生成切片 {clip_id}: speaker={clip[0]['speaker']}, "
-                           f"sequences={sequences}, duration={clips_library[clip_id]['total_duration_ms']}ms")
-        
-        return clips_library, sentence_to_clip_map
+        accumulator.pending_sentences.append(sentence)
     
-    async def extract_and_save_clips(self, audio_path: str, clips_library: Dict, 
-                                    output_prefix: str, s3_client, bucket_name: str) -> List[AudioSegment]:
-        """使用ffmpeg直接切分音频 - 高性能AAC原生支持"""
+    def _is_accumulator_full(self, accumulator: StreamingAccumulator) -> bool:
+        """检查累积器是否满载"""
+        if not accumulator.time_ranges:
+            return False
+        
+        total_duration = accumulator.get_total_duration(self.gap_duration_ms)
+        return total_duration >= self.max_duration_ms
+    
+    async def _emit_accumulator(self, accumulator: StreamingAccumulator, 
+                               audio_path: str, output_prefix: str, 
+                               s3_client, bucket_name: str) -> Optional[AudioSegment]:
+        """发射累积器：生成音频并上传"""
+        if not accumulator.pending_sentences:
+            return None
+        
+        # 检查最小时长
+        total_duration = accumulator.get_total_duration(self.gap_duration_ms)
+        if len(accumulator.pending_sentences) == 1 and total_duration < self.min_duration_ms:
+            sequences = [s['sequence'] for s in accumulator.pending_sentences]
+            self.logger.info(f"🗑️ 丢弃过短的单句片段: speaker={accumulator.speaker}, "
+                           f"duration={total_duration}ms, sequences={sequences}")
+            return None
+        
+        # 生成clip信息
+        clip_id = f"sequence_{accumulator.sequence_start:04d}"
+        audio_key = f"{output_prefix}/{clip_id}_{accumulator.speaker}.wav"
+        
+        self.logger.info(f"🎵 发射音频片段 {clip_id}: speaker={accumulator.speaker}, "
+                        f"ranges={len(accumulator.time_ranges)}, sentences={len(accumulator.pending_sentences)}, "
+                        f"duration={total_duration}ms")
+        
+        # 使用FFmpeg处理音频
+        success = await self._process_audio_with_ffmpeg(
+            audio_path, accumulator.time_ranges, audio_key, s3_client, bucket_name
+        )
+        
+        if not success:
+            return None
+        
+        # 设置audio_url供后续复用
+        accumulator.audio_url = audio_key
+        
+        # 创建segment对象
+        return AudioSegment(
+            segmentId=clip_id,
+            audioKey=audio_key,
+            speaker=accumulator.speaker,
+            startMs=accumulator.time_ranges[0][0],
+            endMs=accumulator.time_ranges[-1][1],
+            durationMs=total_duration,
+            sentences=[{
+                'sequence': s['sequence'],
+                'original': s['original'],
+                'translation': s.get('translation')
+            } for s in accumulator.pending_sentences]
+        )
+    
+    async def _process_audio_with_ffmpeg(self, audio_path: str, time_ranges: List[List[int]], 
+                                       audio_key: str, s3_client, bucket_name: str) -> bool:
+        """使用FFmpeg处理音频并上传到R2"""
         import subprocess
+        import tempfile
         
-        # 验证音频文件
-        self.logger.info(f"验证音频文件: {audio_path}")
-        if not os.path.exists(audio_path):
-            raise FileNotFoundError(f"音频文件不存在: {audio_path}")
+        # 创建临时输出文件
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+            output_path = tmp_file.name
         
-        file_size = os.path.getsize(audio_path)
-        self.logger.info(f"音频文件大小: {file_size} bytes")
-        
-        if file_size == 0:
-            raise ValueError(f"音频文件为空: {audio_path}")
-        
-        # 检查ffmpeg可用性和音频信息
         try:
-            # 获取音频时长信息
-            probe_cmd = [
-                'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-                '-show_format', '-show_streams', audio_path
-            ]
-            probe_result = await asyncio.to_thread(
-                subprocess.run, probe_cmd, 
+            if len(time_ranges) == 1:
+                # 🎯 单段处理 - 高性能流复制
+                start_ms, end_ms = time_ranges[0]
+                start_sec = start_ms / 1000.0
+                duration_sec = (end_ms - start_ms) / 1000.0
+                
+                ffmpeg_cmd = [
+                    'ffmpeg', '-y',
+                    '-ss', f'{start_sec:.3f}',
+                    '-i', audio_path,
+                    '-t', f'{duration_sec:.3f}',
+                    '-c:a', 'copy',
+                    '-avoid_negative_ts', 'make_zero',
+                    output_path
+                ]
+                
+                self.logger.info(f"📝 单段FFmpeg: {' '.join(ffmpeg_cmd)}")
+                
+            else:
+                # 🎵 多段处理 - Gap静音插入
+                input_specs = []
+                
+                # 为每个音频段添加输入
+                for i, (start_ms, end_ms) in enumerate(time_ranges):
+                    start_sec = start_ms / 1000.0
+                    duration_sec = (end_ms - start_ms) / 1000.0
+                    
+                    input_specs.extend(['-ss', f'{start_sec:.3f}', '-t', f'{duration_sec:.3f}', '-i', audio_path])
+                    
+                    self.logger.info(f"  段{i+1}: {start_sec:.3f}s - {start_sec + duration_sec:.3f}s ({duration_sec:.3f}s)")
+                
+                # 构建filter_complex - Gap静音插入
+                gap_sec = self.gap_duration_ms / 1000.0
+                gap_filter = f'anullsrc=channel_layout=mono:sample_rate=44100:duration={gap_sec:.3f}'
+                
+                # 构建拼接序列：音频1 + gap + 音频2 + gap + 音频3...
+                concat_parts = []
+                for i in range(len(time_ranges)):
+                    concat_parts.append(f'[{i}:a]')
+                    if i < len(time_ranges) - 1:
+                        concat_parts.append('[gap]')
+                
+                filter_complex = f'{gap_filter}[gap];{"".join(concat_parts)}concat=n={len(concat_parts)}:v=0:a=1[out]'
+                
+                ffmpeg_cmd = ['ffmpeg', '-y'] + input_specs + [
+                    '-filter_complex', filter_complex,
+                    '-map', '[out]',
+                    output_path
+                ]
+                
+                self.logger.info(f"🎵 多段处理: {len(time_ranges)}段 + {len(time_ranges)-1}个Gap({gap_sec:.3f}s)")
+            
+            # 执行ffmpeg命令
+            result = await asyncio.to_thread(
+                subprocess.run, ffmpeg_cmd,
                 capture_output=True, text=True, check=True
             )
             
-            import json
-            audio_info = json.loads(probe_result.stdout)
-            duration_str = audio_info['format']['duration']
-            total_duration_ms = int(float(duration_str) * 1000)
+            # 验证输出文件
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                self.logger.error(f"FFmpeg未生成有效输出文件")
+                return False
             
-            # 🔍 调试：检查clips_library的实际内容
-            self.logger.info(f"🔍 调试clips_library结构:")
-            for clip_id, clip_info in clips_library.items():
-                self.logger.info(f"  clip_id: {clip_id}")
-                self.logger.info(f"  clip_info keys: {list(clip_info.keys())}")
-                break  # 只显示第一个用于调试
+            # 上传到R2
+            with open(output_path, 'rb') as f:
+                s3_client.put_object(
+                    Bucket=bucket_name,
+                    Body=f,
+                    Key=audio_key,
+                    ContentType='audio/wav'
+                )
             
-            # 获取转录时间戳范围用于时间轴验证
-            speech_transcripts = [t for t in clips_library.values() if t.get('sentences')]
-            if speech_transcripts:
-                all_segments = []
-                for clip_info in speech_transcripts:
-                    # 🔍 添加安全访问和调试信息
-                    if 'audio_segments' in clip_info:
-                        all_segments.extend(clip_info['audio_segments'])
-                    elif 'segments_to_concatenate' in clip_info:
-                        self.logger.warning(f"🚨 发现旧字段名segments_to_concatenate，使用兼容模式")
-                        all_segments.extend(clip_info['segments_to_concatenate'])
-                    else:
-                        self.logger.error(f"❌ clip_info缺少音频段数据，available keys: {list(clip_info.keys())}")
-                        continue
-                
-                if all_segments:
-                    transcript_start = min(seg[0] for seg in all_segments)
-                    transcript_end = max(seg[1] for seg in all_segments)
-                    transcript_duration = transcript_end - transcript_start
-                    
-                    self.logger.info(f"🎵 音频文件时长: {total_duration_ms/1000:.1f}秒 ({total_duration_ms}ms)")
-                    self.logger.info(f"📝 转录时间戳范围: {transcript_start}ms - {transcript_end}ms ({transcript_duration/1000:.1f}秒)")
-                    
-                    # 时间轴偏移检测
-                    duration_diff = abs(total_duration_ms - transcript_duration) 
-                    if duration_diff > 5000:  # 超过5秒差异
-                        self.logger.warning(f"⚠️ 时间轴可能不匹配: 音频={total_duration_ms/1000:.1f}s vs 转录={transcript_duration/1000:.1f}s, 差异={duration_diff/1000:.1f}s")
-                    
-                    # 检查转录时间戳是否超出音频范围
-                    if transcript_end > total_duration_ms:
-                        self.logger.error(f"❌ 转录时间戳超出音频范围: {transcript_end}ms > {total_duration_ms}ms")
-                        self.logger.error(f"   这通常意味着转录基于视频时间轴，但音频分离后时间轴发生偏移")
-                    
-                    if transcript_start > total_duration_ms / 2:
-                        self.logger.warning(f"⚠️ 转录开始时间较晚: {transcript_start}ms，可能存在时间偏移")
+            self.logger.info(f"📤 已上传音频到R2: {audio_key}")
+            return True
             
-            self.logger.info(f"音频格式: {audio_info['format']['format_name']}")
-            
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"FFmpeg处理失败: {e.stderr}")
+            return False
         except Exception as e:
-            self.logger.error(f"ffprobe音频信息获取失败: {e}")
-            raise ValueError(f"无法解析音频文件: {e}")
-        
-        segments = []
-        
-        # 并行处理所有切片 - 使用ffmpeg直接切分
-        async def process_single_clip_with_ffmpeg(clip_id: str, clip_info: Dict) -> Optional[AudioSegment]:
-            """使用ffmpeg处理单个切片"""
-            try:
-                # 🎯 使用序号命名文件（更直观）
-                speaker_clean = clip_info['speaker'].replace(' ', '_').replace('/', '_')
-                first_sequence = clip_info.get('first_sequence', 0)
-                audio_key = f"{output_prefix}/{first_sequence:04d}_{speaker_clean}.wav"
-                
-                # 创建临时输出文件
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                    output_path = tmp_file.name
-                
-                try:
-                    # 🎵 新的FFmpeg处理逻辑 - 支持精确时间戳和Gap机制
-                    # 🔍 兼容性访问audio_segments字段
-                    if 'audio_segments' in clip_info:
-                        audio_segments = clip_info['audio_segments']
-                    elif 'segments_to_concatenate' in clip_info:
-                        self.logger.warning(f"🚨 切片{clip_id}使用旧字段名segments_to_concatenate")
-                        audio_segments = clip_info['segments_to_concatenate']
-                    else:
-                        self.logger.error(f"❌ 切片{clip_id}缺少音频段数据: {list(clip_info.keys())}")
-                        return None
-                    
-                    gap_duration_ms = clip_info.get('gap_duration_ms', self.gap_duration_ms)
-                    
-                    if len(audio_segments) == 1:
-                        # 🎯 单段处理 - 高性能流复制
-                        start_ms, end_ms = audio_segments[0]
-                        
-                        # 边界检查
-                        start_ms = max(0, start_ms)
-                        end_ms = min(total_duration_ms, end_ms)
-                        duration_ms = end_ms - start_ms
-                        
-                        if duration_ms <= 0:
-                            self.logger.warning(f"切片 {clip_id} 时长无效，跳过")
-                            return None
-                        
-                        # 转换为ffmpeg时间格式
-                        start_sec = start_ms / 1000.0
-                        duration_sec = duration_ms / 1000.0
-                        
-                        # 验证时间范围
-                        audio_duration_sec = total_duration_ms / 1000.0
-                        self.logger.info(f"🎵 单段切片 {clip_id}: {start_sec:.3f}s - {start_sec + duration_sec:.3f}s (时长: {duration_sec:.3f}s)")
-                        
-                        # 🚀 高性能单段切取 - 无fade，纯流复制
-                        ffmpeg_cmd = [
-                            'ffmpeg', '-y',
-                            '-ss', f'{start_sec:.3f}',  # 快速seek
-                            '-i', audio_path,
-                            '-t', f'{duration_sec:.3f}',
-                            '-c:a', 'copy',  # 流复制，保持原始质量
-                            '-avoid_negative_ts', 'make_zero',
-                            output_path
-                        ]
-                        
-                        self.logger.info(f"📝 单段FFmpeg: {' '.join(ffmpeg_cmd)}")
-                        
-                    else:
-                        # 🎵 多段处理 - Gap静音插入，无fade
-                        input_specs = []
-                        filter_parts = []
-                        
-                        # 为每个音频段添加输入
-                        for i, (start_ms, end_ms) in enumerate(audio_segments):
-                            start_ms = max(0, start_ms)
-                            end_ms = min(total_duration_ms, end_ms)
-                            duration_ms = end_ms - start_ms
-                            
-                            if duration_ms <= 0:
-                                continue
-                                
-                            start_sec = start_ms / 1000.0
-                            duration_sec = duration_ms / 1000.0
-                            
-                            # 添加音频段输入
-                            input_specs.extend(['-ss', f'{start_sec:.3f}', '-t', f'{duration_sec:.3f}', '-i', audio_path])
-                            
-                            self.logger.info(f"  段{i+1}: {start_sec:.3f}s - {start_sec + duration_sec:.3f}s ({duration_sec:.3f}s)")
-                        
-                        if not input_specs:
-                            self.logger.warning(f"切片 {clip_id} 无有效音频段，跳过")
-                            return None
-                        
-                        # 🎵 构建filter_complex - Gap静音插入，无fade
-                        gap_sec = gap_duration_ms / 1000.0
-                        
-                        if len(audio_segments) == 1:
-                            # 实际只有一个有效段，直接输出
-                            filter_complex = '[0:a]anull[out]'
-                        else:
-                            # 多段拼接，插入gap静音
-                            # 生成gap静音源
-                            gap_filter = f'anullsrc=channel_layout=mono:sample_rate=44100:duration={gap_sec:.3f}'
-                            
-                            # 构建拼接序列：音频1 + gap + 音频2 + gap + 音频3...
-                            concat_parts = []
-                            for i in range(len(audio_segments)):
-                                concat_parts.append(f'[{i}:a]')  # 音频段
-                                if i < len(audio_segments) - 1:  # 不是最后一个
-                                    concat_parts.append('[gap]')  # gap静音
-                            
-                            filter_complex = f'{gap_filter}[gap];{"".join(concat_parts)}concat=n={len(concat_parts)}:v=0:a=1[out]'
-                        
-                        ffmpeg_cmd = ['ffmpeg', '-y'] + input_specs + [
-                            '-filter_complex', filter_complex,
-                            '-map', '[out]',
-                            output_path
-                        ]
-                        
-                        self.logger.info(f"🎵 多段切片 {clip_id}: {len(audio_segments)}段 + {len(audio_segments)-1}个Gap({gap_sec:.3f}s)")
-                        self.logger.info(f"📝 多段FFmpeg: {' '.join(ffmpeg_cmd[:10])}... (共{len(ffmpeg_cmd)}个参数)")
-                    
-                    # 执行ffmpeg命令
-                    self.logger.info(f"🚀 执行ffmpeg处理切片 {clip_id}: {len(audio_segments)}段, 说话人={clip_info['speaker']}")
-                    
-                    result = await asyncio.to_thread(
-                        subprocess.run, ffmpeg_cmd,
-                        capture_output=True, text=True, check=True
-                    )
-                    
-                    # 详细验证输出文件
-                    if not os.path.exists(output_path):
-                        raise ValueError(f"ffmpeg未生成输出文件: {output_path}")
-                    
-                    output_size = os.path.getsize(output_path)
-                    if output_size == 0:
-                        raise ValueError(f"ffmpeg生成空文件: {output_path}")
-                    
-                    self.logger.info(f"✅ 文件生成成功: {output_size} bytes")
-                    
-                    # 上传到R2
-                    with open(output_path, 'rb') as f:
-                        s3_client.put_object(
-                            Bucket=bucket_name,
-                            Body=f,
-                            Key=audio_key,
-                            ContentType='audio/wav'
-                        )
-                    
-                    self.logger.info(f"📤 已上传切片到R2: {audio_key}")
-                    
-                    # 输出ffmpeg的stderr用于调试
-                    if result.stderr:
-                        self.logger.debug(f"ffmpeg stderr: {result.stderr}")
-                    
-                    # 创建segment对象
-                    segment_data = {
-                        'segmentId': clip_id,
-                        'audioKey': audio_key,
-                        'speaker': clip_info['speaker'],
-                        'startMs': audio_segments[0][0],
-                        'endMs': audio_segments[-1][1],
-                        'durationMs': clip_info['total_duration_ms'],
-                        'sentences': clip_info['sentences']
-                    }
-                    return AudioSegment(**segment_data)
-                    
-                finally:
-                    # 清理临时文件
-                    if os.path.exists(output_path):
-                        os.unlink(output_path)
-                        
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"ffmpeg处理切片 {clip_id} 失败: stderr={e.stderr}")
-                return None
-            except Exception as e:
-                self.logger.error(f"处理切片 {clip_id} 异常: {e}")
-                return None
-        
-        # 🚀 优化：限制并发数量以避免CPU过载
-        max_concurrent = min(3, len(clips_library))  # 最多3个并发任务
-        self.logger.info(f"开始处理 {len(clips_library)} 个音频切片 (并发数: {max_concurrent})")
-        
-        # 使用信号量限制并发
-        semaphore = asyncio.Semaphore(max_concurrent)
-        
-        async def process_with_limit(clip_id, clip_info):
-            async with semaphore:
-                return await process_single_clip_with_ffmpeg(clip_id, clip_info)
-        
-        tasks = [process_with_limit(clip_id, clip_info) 
-                for clip_id, clip_info in clips_library.items()]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 收集成功的结果
-        for result in results:
-            if isinstance(result, AudioSegment):
-                segments.append(result)
-            elif isinstance(result, Exception):
-                self.logger.error(f"切片处理异常: {result}")
-        
-        self.logger.info(f"ffmpeg并行处理完成，成功生成 {len(segments)} 个音频切片")
-        return segments
+            self.logger.error(f"处理音频异常: {e}")
+            return False
+        finally:
+            # 清理临时文件
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+    
+    # 所有旧的处理逻辑已移除，使用新的流式处理方法
+    # 原有方法：
+    # - _calculate_total_duration_with_gaps
+    # - _create_audio_clips
+    # - _extract_speech_sentences
+    # - _group_by_speaker
+    # - _process_speaker_groups
+    # - _split_long_group
+    # - _should_keep_clip
+    # - _generate_clip_info
+    # 已全部被流式处理方法取代
 
 
 # 创建R2客户端
@@ -644,19 +442,7 @@ async def segment_audio(request: SegmentRequest):
             # 🎵 创建切分器 - 从环境变量读取配置
             segmenter = AudioSegmenter()
             
-            # 生成切片计划
-            clips_library, sentence_to_clip_map = segmenter._create_audio_clips(request.transcripts)
-            
-            if not clips_library:
-                return SegmentResponse(
-                    success=True,
-                    segments=[],
-                    sentenceToSegmentMap={}
-                )
-            
-            logger.info(f"生成了 {len(clips_library)} 个切片计划")
-            
-            # 提取并保存切片
+            # 🚀 使用新的流式处理方法
             s3_client_for_upload = boto3.client(
                 's3',
                 endpoint_url=f'https://{request.r2Config.accountId}.r2.cloudflarestorage.com',
@@ -665,20 +451,27 @@ async def segment_audio(request: SegmentRequest):
                 region_name='auto'
             )
             
-            segments = await segmenter.extract_and_save_clips(
+            segments, sentence_to_segment_map = await segmenter.process_sentences_streaming(
+                request.transcripts,
                 str(audio_path),
-                clips_library,
                 request.outputPrefix,
                 s3_client_for_upload,
                 request.r2Config.bucketName
             )
             
-            logger.info(f"成功生成 {len(segments)} 个音频切片")
+            if not segments:
+                return SegmentResponse(
+                    success=True,
+                    segments=[],
+                    sentenceToSegmentMap={}
+                )
+            
+            logger.info(f"✅ 流式处理成功生成 {len(segments)} 个音频切片")
             
             return SegmentResponse(
                 success=True,
                 segments=segments,
-                sentenceToSegmentMap=sentence_to_clip_map
+                sentenceToSegmentMap=sentence_to_segment_map
             )
             
     except ValueError as e:
