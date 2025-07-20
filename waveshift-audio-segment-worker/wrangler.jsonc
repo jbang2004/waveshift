@@ -27,10 +27,11 @@
     "CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
     "R2_BUCKET_NAME": "waveshift-media",
     "R2_PUBLIC_DOMAIN": "media.waveshift.net",
-    // 🎵 音频切片新配置
-    "GAP_DURATION_MS": "500",      // 句子间gap静音时长
-    "MAX_DURATION_MS": "12000",    // 最大片段时长（包含gap）
-    "MIN_DURATION_MS": "1500"      // 最小保留时长（过滤孤立片段）
+    // 🎵 音频切片流式处理配置
+    "GAP_DURATION_MS": "500",            // 句子间gap静音时长
+    "MAX_DURATION_MS": "12000",          // 最大片段时长（包含gap）
+    "MIN_DURATION_MS": "3000",           // 最小保留时长（过滤孤立片段）
+    "GAP_THRESHOLD_MULTIPLIER": "3"      // 间隔检测倍数（小于3倍gap时直接合并）
   },
   
   // R2 存储绑定
