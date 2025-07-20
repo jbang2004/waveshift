@@ -306,12 +306,27 @@ class AudioSegmenter:
             duration_str = audio_info['format']['duration']
             total_duration_ms = int(float(duration_str) * 1000)
             
+            # 🔍 调试：检查clips_library的实际内容
+            self.logger.info(f"🔍 调试clips_library结构:")
+            for clip_id, clip_info in clips_library.items():
+                self.logger.info(f"  clip_id: {clip_id}")
+                self.logger.info(f"  clip_info keys: {list(clip_info.keys())}")
+                break  # 只显示第一个用于调试
+            
             # 获取转录时间戳范围用于时间轴验证
             speech_transcripts = [t for t in clips_library.values() if t.get('sentences')]
             if speech_transcripts:
                 all_segments = []
                 for clip_info in speech_transcripts:
-                    all_segments.extend(clip_info['audio_segments'])
+                    # 🔍 添加安全访问和调试信息
+                    if 'audio_segments' in clip_info:
+                        all_segments.extend(clip_info['audio_segments'])
+                    elif 'segments_to_concatenate' in clip_info:
+                        self.logger.warning(f"🚨 发现旧字段名segments_to_concatenate，使用兼容模式")
+                        all_segments.extend(clip_info['segments_to_concatenate'])
+                    else:
+                        self.logger.error(f"❌ clip_info缺少音频段数据，available keys: {list(clip_info.keys())}")
+                        continue
                 
                 if all_segments:
                     transcript_start = min(seg[0] for seg in all_segments)
@@ -355,8 +370,17 @@ class AudioSegmenter:
                 
                 try:
                     # 🎵 新的FFmpeg处理逻辑 - 支持精确时间戳和Gap机制
-                    audio_segments = clip_info['audio_segments']  # 精确音频段列表
-                    gap_duration_ms = clip_info['gap_duration_ms']
+                    # 🔍 兼容性访问audio_segments字段
+                    if 'audio_segments' in clip_info:
+                        audio_segments = clip_info['audio_segments']
+                    elif 'segments_to_concatenate' in clip_info:
+                        self.logger.warning(f"🚨 切片{clip_id}使用旧字段名segments_to_concatenate")
+                        audio_segments = clip_info['segments_to_concatenate']
+                    else:
+                        self.logger.error(f"❌ 切片{clip_id}缺少音频段数据: {list(clip_info.keys())}")
+                        return None
+                    
+                    gap_duration_ms = clip_info.get('gap_duration_ms', self.gap_duration_ms)
                     
                     if len(audio_segments) == 1:
                         # 🎯 单段处理 - 高性能流复制
@@ -485,8 +509,8 @@ class AudioSegmenter:
                         'segmentId': clip_id,
                         'audioKey': audio_key,
                         'speaker': clip_info['speaker'],
-                        'startMs': clip_info['audio_segments'][0][0],
-                        'endMs': clip_info['audio_segments'][-1][1],
+                        'startMs': audio_segments[0][0],
+                        'endMs': audio_segments[-1][1],
                         'durationMs': clip_info['total_duration_ms'],
                         'sentences': clip_info['sentences']
                     }
