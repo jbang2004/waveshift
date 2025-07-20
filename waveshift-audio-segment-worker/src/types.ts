@@ -21,6 +21,8 @@ export interface AudioSegmentResponse {
   segments?: AudioSegment[];
   sentenceToSegmentMap?: Record<number, string>; // sequence -> segment_id
   error?: string;
+  note?: string;                    // 可选的说明信息
+  containerStatus?: string;         // 容器状态信息
 }
 
 export interface AudioSegment {

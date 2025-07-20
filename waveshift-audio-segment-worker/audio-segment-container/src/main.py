@@ -13,9 +13,7 @@ from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timezone
 
 import boto3
-import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 # 配置日志 - 启用详细调试信息

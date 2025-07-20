@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { AudioSegmentRequest, AudioSegmentResponse, Env } from './types';
+import type { AudioSegmentRequest, AudioSegmentResponse, TranscriptItem, Env } from './types';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { AudioSegmentContainer } from './container';
 
@@ -98,10 +98,10 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
       console.error('[AudioSegmentWorker] 容器不可用，返回模拟数据:', error);
       
       // 容器不可用时返回模拟数据
-      const mockSegments = request.transcripts.map((transcript, index) => {
+      const mockSegments = request.transcripts.map((transcript: TranscriptItem, index: number) => {
         const segmentKey = `${request.outputPrefix}/segment_${String(index + 1).padStart(3, '0')}.mp3`;
-        const startMs = this.parseTimeToMs(transcript.start);
-        const endMs = this.parseTimeToMs(transcript.end);
+        const startMs = transcript.startMs;
+        const endMs = transcript.endMs;
         return {
           segmentId: `mock_segment_${Date.now()}_${index}`,
           audioKey: segmentKey,
@@ -128,15 +128,6 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
     }
   }
 
-  /**
-   * 解析时间字符串到毫秒
-   */
-  private parseTimeToMs(timeStr: string): number {
-    const match = timeStr.match(/(\d+)m(\d+)s(\d+)ms/);
-    if (!match) return 0;
-    const [, minutes, seconds, ms] = match;
-    return parseInt(minutes) * 60000 + parseInt(seconds) * 1000 + parseInt(ms);
-  }
 
   /**
    * HTTP fetch处理器
@@ -169,18 +160,13 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
   }
 }
 
-// 辅助函数：解析时间字符串到毫秒
-function parseTimeToMs(timeStr: string): number {
-  const match = timeStr.match(/(\d+)m(\d+)s(\d+)ms/);
-  if (!match) return 0;
-  const [, minutes, seconds, ms] = match;
-  return parseInt(minutes) * 60000 + parseInt(seconds) * 1000 + parseInt(ms);
-}
 
 // 添加 /segment 路由到主应用
 app.post('/segment', async (c) => {
+  let data: AudioSegmentRequest;
+  
   try {
-    const data = await c.req.json() as AudioSegmentRequest;
+    data = await c.req.json() as AudioSegmentRequest;
     
     console.log('[HTTP /segment] 收到切分请求:', {
       audioKey: data.audioKey,
@@ -238,10 +224,10 @@ app.post('/segment', async (c) => {
     console.error('[HTTP /segment] 容器不可用，返回模拟数据:', error);
     
     // 生成模拟数据
-    const mockSegments = data.transcripts?.map((transcript, index) => {
+    const mockSegments = data.transcripts?.map((transcript: TranscriptItem, index: number) => {
       const segmentKey = `${data.outputPrefix}/segment_${String(index + 1).padStart(3, '0')}.mp3`;
-      const startMs = parseTimeToMs(transcript.start);
-      const endMs = parseTimeToMs(transcript.end);
+      const startMs = transcript.startMs;
+      const endMs = transcript.endMs;
       return {
         segmentId: `mock_segment_${Date.now()}_${index}`,
         audioKey: segmentKey,
