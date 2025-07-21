@@ -158,13 +158,6 @@ class SegmentationDecision:
         # 说话人变化
         if sentence['speaker'] != accumulator.speaker:
             return BreakDecision(True, "speaker_change")
-            
-        # 间隔过大
-        if accumulator.time_ranges:
-            last_end = accumulator.time_ranges[-1][1]
-            gap = sentence['startMs'] - last_end
-            if gap > gap_threshold_ms:
-                return BreakDecision(True, f"gap_too_large_{gap}ms")
                 
         return BreakDecision(False, "continue_accumulation")
 
