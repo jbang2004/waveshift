@@ -90,6 +90,9 @@ class StreamingAccumulator:
         self.pending_sentences = [first_sentence]
         self.sequence_start = first_sentence['sequence']
         self.state = AccumulatorState.ACCUMULATING
+        # 音频复用字段
+        self.generated_audio_key: Optional[str] = None
+        self.is_audio_generated: bool = False
         
         
     def get_total_duration(self, gap_duration_ms: int) -> int:
@@ -115,6 +118,12 @@ class StreamingAccumulator:
             self.time_ranges.append([sentence['startMs'], sentence['endMs']])
             
         self.pending_sentences.append(sentence)
+    
+    def can_reuse_audio(self) -> bool:
+        """检查是否可以复用已生成的音频"""
+        return (self.state == AccumulatorState.ACCUMULATING and 
+                self.is_audio_generated and 
+                self.generated_audio_key is not None)
 
 
 class SegmentationDecision:
@@ -188,15 +197,28 @@ class AudioSegmenter:
             if not accumulator:
                 accumulator = StreamingAccumulator(self._sentence_to_dict(sentence))
             else:
-                accumulator.add_sentence(self._sentence_to_dict(sentence), self.gap_threshold_ms)
+                # 检查是否可以复用已生成的音频
+                if accumulator.can_reuse_audio():
+                    # 复用现有音频：直接为当前句子创建映射，无需重新生成音频
+                    current_sentence = self._sentence_to_dict(sentence)
+                    audio_key = accumulator.generated_audio_key
+                    segment_id = audio_key.split('/')[-1].replace('.wav', '') if audio_key else None
+                    
+                    if segment_id:
+                        sentence_to_segment_map[current_sentence['sequence']] = segment_id
+                        self.logger.info(f"🔄 复用音频: segment_id={segment_id}, "
+                                       f"句子{current_sentence['sequence']}直接映射")
+                else:
+                    # 正常添加句子到累积器
+                    accumulator.add_sentence(self._sentence_to_dict(sentence), self.gap_threshold_ms)
             
-            # 检查是否满载并重置
+            # 检查是否满载并生成音频（保持accumulator以供复用）
             if self._is_accumulator_full(accumulator):
                 await self._process_and_add_segment(
                     accumulator, segments, sentence_to_segment_map, 
                     audio_path, output_prefix, s3_client, bucket_name
                 )
-                accumulator = None
+                # 注意：不再重置accumulator，保持以供同说话人句子复用
         
         # 处理最后的累积器
         if accumulator and accumulator.pending_sentences:
@@ -240,10 +262,38 @@ class AudioSegmenter:
             sentence_map[sentence['sequence']] = segment_id
     
     def _is_accumulator_full(self, accumulator: StreamingAccumulator) -> bool:
-        """检查累积器是否满载"""
+        """检查累积器是否满载且需要处理"""
         if not accumulator or accumulator.state != AccumulatorState.ACCUMULATING:
             return False
-        return accumulator.get_total_duration(self.gap_duration_ms) >= self.max_duration_ms
+        
+        # 如果未达到最大时长，继续累积
+        if accumulator.get_total_duration(self.gap_duration_ms) < self.max_duration_ms:
+            return False
+            
+        # 如果达到最大时长但还没生成音频，需要处理（生成音频）
+        if not accumulator.is_audio_generated:
+            return True
+            
+        # 如果已生成音频，可以继续复用，不需要处理
+        return False
+    
+    def _reuse_existing_audio(self, accumulator: StreamingAccumulator, 
+                            sentence_map: Dict[int, str]) -> None:
+        """复用已生成的音频，更新句子映射关系"""
+        if not accumulator.can_reuse_audio():
+            return
+            
+        # 从generated_audio_key提取segment_id（去掉路径前缀）
+        audio_key = accumulator.generated_audio_key
+        segment_id = audio_key.split('/')[-1].replace('.wav', '') if audio_key else None
+        
+        if segment_id:
+            # 更新映射关系：将当前句子映射到已生成的segment
+            for sentence in accumulator.pending_sentences:
+                sentence_map[sentence['sequence']] = segment_id
+                
+            self.logger.info(f"🔄 复用音频: segment_id={segment_id}, "
+                           f"新增{len(accumulator.pending_sentences)}个句子映射")
     
     async def _finalize_accumulator(self, accumulator: StreamingAccumulator, 
                                    audio_path: str, output_prefix: str, 
@@ -277,6 +327,10 @@ class AudioSegmenter:
         
         if not success:
             return None
+        
+        # 标记音频已生成，支持后续复用
+        accumulator.generated_audio_key = audio_key
+        accumulator.is_audio_generated = True
         
         # 创建segment对象
         return AudioSegment(
