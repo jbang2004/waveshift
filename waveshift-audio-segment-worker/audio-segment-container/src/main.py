@@ -4,7 +4,6 @@
 基于转录数据和说话人信息进行智能音频片段提取
 """
 import os
-import re
 import asyncio
 import logging
 import tempfile
@@ -78,7 +77,6 @@ from typing import Optional, NamedTuple
 
 class AccumulatorState(Enum):
     ACCUMULATING = "accumulating"      # 正在累积sentences
-    READY_FOR_REUSE = "ready_for_reuse"  # 已上传，可复用audio_url
 
 class BreakDecision(NamedTuple):
     should_break: bool
@@ -92,36 +90,10 @@ class StreamingAccumulator:
         self.pending_sentences = [first_sentence]
         self.sequence_start = first_sentence['sequence']
         self.state = AccumulatorState.ACCUMULATING
-        self._audio_url: Optional[str] = None
-        self._segment_id: Optional[str] = None
         
-    @property
-    def audio_url(self) -> Optional[str]:
-        return self._audio_url
-        
-    @property
-    def segment_id(self) -> Optional[str]:
-        return self._segment_id
-        
-    def mark_as_uploaded(self, audio_url: str, segment_id: str):
-        """标记为已上传，进入复用状态"""
-        self._audio_url = audio_url
-        self._segment_id = segment_id
-        self.state = AccumulatorState.READY_FOR_REUSE
-        self.pending_sentences = []  # 清空待处理句子
-        self.time_ranges = []
-        
-    def can_reuse_audio(self) -> bool:
-        """检查是否可以复用已上传的音频"""
-        return (self.state == AccumulatorState.READY_FOR_REUSE and 
-                self._audio_url is not None and 
-                self._segment_id is not None)
         
     def get_total_duration(self, gap_duration_ms: int) -> int:
         """计算累积器的总时长（包含gaps）"""
-        if self.state == AccumulatorState.READY_FOR_REUSE:
-            return 0  # 已上传状态不计算时长
-            
         audio_duration = sum(end - start for start, end in self.time_ranges)
         gap_count = max(0, len(self.time_ranges) - 1)
         return audio_duration + (gap_count * gap_duration_ms)
@@ -149,8 +121,7 @@ class SegmentationDecision:
     """音频切分决策逻辑"""
     
     @staticmethod
-    def should_break_accumulation(accumulator: StreamingAccumulator, sentence: Dict, 
-                                 gap_threshold_ms: int) -> BreakDecision:
+    def should_break_accumulation(accumulator: StreamingAccumulator, sentence: Dict) -> BreakDecision:
         """统一的累积中断决策"""
         if not accumulator:
             return BreakDecision(False, "no_accumulator")
@@ -201,28 +172,17 @@ class AudioSegmenter:
         self.logger.info(f"🎬 开始流式处理 {len(valid_sentences)} 个语音句子")
         
         for sentence in valid_sentences:
-            # 检查是否可以复用已上传的音频
-            if accumulator and accumulator.can_reuse_audio() and sentence.speaker == accumulator.speaker:
-                sentence_to_segment_map[sentence.sequence] = accumulator.segment_id
-                self.logger.debug(f"句子{sentence.sequence}复用音频片段: {accumulator.segment_id}")
-                continue
-            
             # 检查是否需要发射当前累积器
             decision = SegmentationDecision.should_break_accumulation(
-                accumulator, self._sentence_to_dict(sentence), self.gap_threshold_ms
+                accumulator, self._sentence_to_dict(sentence)
             )
             
             if decision.should_break:
-                # 如果是READY_FOR_REUSE状态，强制清理避免后续错误复用
-                if accumulator and accumulator.state == AccumulatorState.READY_FOR_REUSE:
-                    self.logger.info(f"🧹 清理跨说话人的复用状态: {accumulator.speaker} -> {sentence.speaker}")
-                    accumulator = None
-                else:
-                    segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
-                    if segment:
-                        segments.append(segment)
-                        self._update_sentence_mapping(accumulator, segment.segmentId, sentence_to_segment_map)
-                    accumulator = None
+                await self._process_and_add_segment(
+                    accumulator, segments, sentence_to_segment_map, 
+                    audio_path, output_prefix, s3_client, bucket_name
+                )
+                accumulator = None
             
             # 添加当前句子到累积器
             if not accumulator:
@@ -230,20 +190,20 @@ class AudioSegmenter:
             else:
                 accumulator.add_sentence(self._sentence_to_dict(sentence), self.gap_threshold_ms)
             
-            # 检查是否满载
+            # 检查是否满载并重置
             if self._is_accumulator_full(accumulator):
-                segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
-                if segment:
-                    segments.append(segment)
-                    self._update_sentence_mapping(accumulator, segment.segmentId, sentence_to_segment_map)
-                    accumulator.mark_as_uploaded(segment.audioKey, segment.segmentId)
+                await self._process_and_add_segment(
+                    accumulator, segments, sentence_to_segment_map, 
+                    audio_path, output_prefix, s3_client, bucket_name
+                )
+                accumulator = None
         
         # 处理最后的累积器
         if accumulator and accumulator.pending_sentences:
-            segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
-            if segment:
-                segments.append(segment)
-                self._update_sentence_mapping(accumulator, segment.segmentId, sentence_to_segment_map)
+            await self._process_and_add_segment(
+                accumulator, segments, sentence_to_segment_map, 
+                audio_path, output_prefix, s3_client, bucket_name
+            )
         
         self.logger.info(f"✅ 流式处理完成，生成 {len(segments)} 个音频片段")
         return segments, sentence_to_segment_map
@@ -260,6 +220,18 @@ class AudioSegmenter:
             'duration': item.endMs - item.startMs
         }
     
+    async def _process_and_add_segment(self, accumulator: StreamingAccumulator, 
+                                     segments: List, sentence_map: Dict[int, str],
+                                     audio_path: str, output_prefix: str, 
+                                     s3_client, bucket_name: str) -> None:
+        """统一的accumulator处理逻辑：完成、添加到segments、更新mapping"""
+        if not accumulator:
+            return
+            
+        segment = await self._finalize_accumulator(accumulator, audio_path, output_prefix, s3_client, bucket_name)
+        if segment:
+            segments.append(segment)
+            self._update_sentence_mapping(accumulator, segment.segmentId, sentence_map)
     
     def _update_sentence_mapping(self, accumulator: StreamingAccumulator, segment_id: str, 
                                 sentence_map: Dict[int, str]):
