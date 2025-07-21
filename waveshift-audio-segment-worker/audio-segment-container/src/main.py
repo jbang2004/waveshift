@@ -43,11 +43,19 @@ class R2Config(BaseModel):
     bucketName: str
     publicDomain: str
 
+class AudioSegmentConfig(BaseModel):
+    """音频切分配置参数"""
+    gapDurationMs: int = 500
+    maxDurationMs: int = 12000
+    minDurationMs: int = 1000
+    gapThresholdMultiplier: int = 3
+
 class SegmentRequest(BaseModel):
     audioKey: str
     transcripts: List[TranscriptItem]
     outputPrefix: str
     r2Config: R2Config
+    segmentConfig: Optional[AudioSegmentConfig] = None
 
 class AudioSegment(BaseModel):
     segmentId: str
@@ -164,12 +172,20 @@ class SegmentationDecision:
 class AudioSegmenter:
     """音频切分服务 - 流式处理的智能音频切片"""
     
-    def __init__(self):
-        # 从环境变量读取配置参数
-        self.gap_duration_ms = int(os.getenv('GAP_DURATION_MS', '500'))
-        self.max_duration_ms = int(os.getenv('MAX_DURATION_MS', '12000'))  
-        self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '3000'))
-        self.gap_threshold_multiplier = int(os.getenv('GAP_THRESHOLD_MULTIPLIER', '3'))
+    def __init__(self, config: Optional[AudioSegmentConfig] = None):
+        # 优先使用传入的配置参数，否则从环境变量读取
+        if config:
+            self.gap_duration_ms = config.gapDurationMs
+            self.max_duration_ms = config.maxDurationMs  
+            self.min_duration_ms = config.minDurationMs
+            self.gap_threshold_multiplier = config.gapThresholdMultiplier
+        else:
+            # 环境变量回退（更新默认值）
+            self.gap_duration_ms = int(os.getenv('GAP_DURATION_MS', '500'))
+            self.max_duration_ms = int(os.getenv('MAX_DURATION_MS', '12000'))  
+            self.min_duration_ms = int(os.getenv('MIN_DURATION_MS', '1000'))  # ✅ 更新默认值
+            self.gap_threshold_multiplier = int(os.getenv('GAP_THRESHOLD_MULTIPLIER', '3'))
+            
         self.gap_threshold_ms = self.gap_duration_ms * self.gap_threshold_multiplier
         
         self.logger = logger
@@ -486,8 +502,8 @@ async def segment_audio(request: SegmentRequest):
                 logger.error(f"下载音频文件失败: {e}")
                 raise ValueError(f"无法下载音频文件 {request.audioKey}: {e}")
             
-            # 🎵 创建切分器 - 从环境变量读取配置
-            segmenter = AudioSegmenter()
+            # 🎵 创建切分器 - 使用请求参数配置（优先）或环境变量
+            segmenter = AudioSegmenter(request.segmentConfig)
             
             # 🚀 使用新的流式处理方法
             s3_client_for_upload = boto3.client(

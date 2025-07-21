@@ -190,6 +190,12 @@ app.post('/segment', async (c) => {
           secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
           bucketName: c.env.R2_BUCKET_NAME,
           publicDomain: c.env.R2_PUBLIC_DOMAIN,
+        },
+        segmentConfig: {
+          gapDurationMs: parseInt(c.env.GAP_DURATION_MS || '500'),
+          maxDurationMs: parseInt(c.env.MAX_DURATION_MS || '12000'),
+          minDurationMs: parseInt(c.env.MIN_DURATION_MS || '1000'),
+          gapThresholdMultiplier: parseInt(c.env.GAP_THRESHOLD_MULTIPLIER || '3')
         }
       })
     });
