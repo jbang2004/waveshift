@@ -47,4 +47,9 @@ export interface Env {
   R2_SECRET_ACCESS_KEY: string;
   R2_BUCKET_NAME: string;
   R2_PUBLIC_DOMAIN: string;
+  // 音频切分配置环境变量
+  GAP_DURATION_MS: string;
+  MAX_DURATION_MS: string;
+  MIN_DURATION_MS: string;
+  GAP_THRESHOLD_MULTIPLIER: string;
 }
