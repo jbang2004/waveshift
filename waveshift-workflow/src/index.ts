@@ -53,7 +53,7 @@ app.get('/result/:id', async (c: Context<{ Bindings: Env }>) => {
 				if (transcriptionResult) {
 					// 获取转录片段
 					const segmentsResult = await c.env.DB.prepare(
-						"SELECT sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text FROM transcription_segments WHERE transcription_id = ? ORDER BY sequence ASC"
+						"SELECT sequence, start_ms, end_ms, content_type, speaker, original, translation FROM transcription_segments WHERE transcription_id = ? ORDER BY sequence ASC"
 					).bind(taskResult.transcription_id).all();
 					
 					transcription = {

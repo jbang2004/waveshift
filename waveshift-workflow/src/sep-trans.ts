@@ -150,8 +150,8 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 											end_ms: parseTimeToMs(data.segment.end || '0m0s0ms'),
 											content_type: data.segment.content_type || 'speech',
 											speaker: data.segment.speaker || 'unknown',
-											original_text: data.segment.original || '',
-											translated_text: data.segment.translation || ''
+											original: data.segment.original || '',
+											translation: data.segment.translation || ''
 										};
 										
 										// 🔥 核心改进：实时处理每个片段
@@ -233,8 +233,8 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					startMs: segment.start_ms,
 					endMs: segment.end_ms,
 					speaker: segment.speaker,
-					original: segment.original_text,
-					translation: segment.translated_text,
+					original: segment.original,
+					translation: segment.translation,
 					content_type: segment.content_type
 				}));
 				

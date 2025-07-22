@@ -142,8 +142,8 @@ export async function storeTranscriptionSegment(
     end_ms: number;
     content_type: string;
     speaker: string;
-    original_text: string;
-    translated_text: string;
+    original: string;
+    translation: string;
     is_first?: boolean;
     is_last?: boolean;
   },
@@ -152,7 +152,7 @@ export async function storeTranscriptionSegment(
   try {
     await env.DB.prepare(`
       INSERT INTO transcription_segments 
-      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original_text, translated_text, is_first, is_last) 
+      (transcription_id, sequence, start_ms, end_ms, content_type, speaker, original, translation, is_first, is_last) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       transcriptionId,
@@ -161,8 +161,8 @@ export async function storeTranscriptionSegment(
       segment.end_ms,
       segment.content_type,
       segment.speaker,
-      segment.original_text,
-      segment.translated_text,
+      segment.original,
+      segment.translation,
       segment.is_first ? 1 : 0,
       segment.is_last ? 1 : 0
     ).run();

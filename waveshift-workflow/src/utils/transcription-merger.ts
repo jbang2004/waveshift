@@ -18,8 +18,8 @@ export interface TranscriptionSegment {
   end_ms: number;
   content_type: string;
   speaker: string;
-  original_text: string;
-  translated_text: string;
+  original: string;
+  translation: string;
   is_first?: boolean; // 是否是音频的第一个片段
   is_last?: boolean; // 是否是音频的最后一个片段
 }
@@ -92,8 +92,8 @@ export function mergeSegments(
     end_ms: curr.end_ms,
     content_type: prev.content_type,
     speaker: prev.speaker,
-    original_text: `${prev.original_text}${separator}${curr.original_text}`.trim(),
-    translated_text: `${prev.translated_text}${separator}${curr.translated_text}`.trim()
+    original: `${prev.original}${separator}${curr.original}`.trim(),
+    translation: `${prev.translation}${separator}${curr.translation}`.trim()
   };
 }
 

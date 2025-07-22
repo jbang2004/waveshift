@@ -83,8 +83,10 @@ export async function GET() {
           end_ms INTEGER NOT NULL,
           content_type TEXT NOT NULL,
           speaker TEXT,
-          original_text TEXT NOT NULL,
-          translated_text TEXT NOT NULL,
+          original TEXT NOT NULL,
+          translation TEXT NOT NULL,
+          is_first INTEGER NOT NULL DEFAULT 0,
+          is_last INTEGER NOT NULL DEFAULT 0,
           FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
         );
       `).run();

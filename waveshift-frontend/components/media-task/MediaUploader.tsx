@@ -277,8 +277,8 @@ export default function MediaUploader({ onTaskCompleted }: MediaUploaderProps) {
                               <span>{segment.speaker}</span>
                             </div>
                             <div className="text-sm">
-                              <p><strong>原文:</strong> {segment.original_text}</p>
-                              <p><strong>翻译:</strong> {segment.translated_text}</p>
+                              <p><strong>原文:</strong> {segment.original}</p>
+                              <p><strong>翻译:</strong> {segment.translation}</p>
                             </div>
                           </div>
                         ))}

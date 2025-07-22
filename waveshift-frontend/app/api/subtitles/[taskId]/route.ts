@@ -65,8 +65,8 @@ export async function GET(
       sentenceIndex: segment.sequence,
       startMs: segment.start_ms,
       endMs: segment.end_ms,
-      rawText: segment.original_text,
-      transText: segment.translated_text,
+      rawText: segment.original,
+      transText: segment.translation,
       speakerId: segment.speaker,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -125,7 +125,7 @@ export async function PATCH(
     if (body.action === 'clear') {
       await db.update(transcriptionSegments)
         .set({ 
-          translated_text: '',
+          translation: '',
         })
         .where(eq(transcriptionSegments.transcription_id, transcription.id));
       
@@ -142,7 +142,7 @@ export async function PATCH(
     // 根据序号更新转录片段
     await db.update(transcriptionSegments)
       .set({ 
-        translated_text: newTranslation,
+        translation: newTranslation,
       })
       .where(and(
         eq(transcriptionSegments.transcription_id, transcription.id),
