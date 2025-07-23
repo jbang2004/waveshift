@@ -82,12 +82,28 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
       const d1Updates: Array<{sequence: number, audioKey: string}> = [];
       
       for (const accumulator of accumulators) {
+        // 🔄 特殊处理：如果accumulator只包含复用句子，跳过音频生成
+        if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
+          console.log(`🔄 跳过纯复用片段: ${accumulator.generateSegmentId()}, ` +
+                      `复用句子数=${accumulator.reusedSentences.length}`);
+          
+          // 直接收集 D1 更新数据（使用已存在的音频key）
+          const existingAudioKey = accumulator.generatedAudioKey || accumulator.generateAudioKey(request.outputPrefix);
+          for (const sentence of accumulator.reusedSentences) {
+            d1Updates.push({
+              sequence: sentence.sequence,
+              audioKey: existingAudioKey
+            });
+          }
+          continue;
+        }
+        
         // 检查是否符合最小时长要求
         if (!segmenter.shouldKeepSegment(accumulator)) {
           continue;
         }
         
-        // Container 处理音频
+        // Container 处理音频（只处理pendingSentences）
         const segment = await this.processAccumulatorWithContainer(
           accumulator, 
           audioData, 

@@ -213,16 +213,33 @@ export class AudioSegmenter {
 
       // 检查是否满载并需要处理
       if (this.isAccumulatorFull(currentAccumulator)) {
+        // 🔄 关键修复：满载时推入列表供Worker处理
         accumulators.push(currentAccumulator);
-        // 🔄 保持累积器以供同说话人句子复用（不重置）
-        // 标记音频将被生成，支持后续复用
-        // 注意：在这里不重置currentAccumulator，保持复用能力
+        
+        console.log(`🎯 累积器满载，加入处理队列: segment_id=${currentAccumulator.generateSegmentId()}, ` +
+                    `duration=${currentAccumulator.getTotalDuration(this.gapDurationMs)}ms, ` +
+                    `sentences=${currentAccumulator.pendingSentences.length}`);
+        
+        // 🔥 关键：标记为已生成，后续同说话人句子将复用此音频
+        // 注意：实际音频文件将在Worker中生成，但这里预先标记以启用复用逻辑
+        currentAccumulator.markAudioGenerated(currentAccumulator.generateAudioKey(''));
+        
+        // 保持currentAccumulator引用，支持后续同说话人句子复用
+        // 不重置currentAccumulator = null
       }
     }
 
     // 处理最后的累积器
-    if (currentAccumulator && currentAccumulator.pendingSentences.length > 0) {
-      accumulators.push(currentAccumulator);
+    if (currentAccumulator) {
+      // 🔄 修复：检查是否有待处理句子或复用句子
+      if (currentAccumulator.pendingSentences.length > 0 || currentAccumulator.reusedSentences.length > 0) {
+        // 如果只有复用句子，确保已标记音频生成
+        if (currentAccumulator.pendingSentences.length === 0 && currentAccumulator.reusedSentences.length > 0) {
+          console.log(`🔄 最后的累积器只包含复用句子: segment_id=${currentAccumulator.generateSegmentId()}, ` +
+                      `复用句子数=${currentAccumulator.reusedSentences.length}`);
+        }
+        accumulators.push(currentAccumulator);
+      }
     }
 
     console.log(`✅ 流式处理完成，生成 ${accumulators.length} 个音频片段计划`);
