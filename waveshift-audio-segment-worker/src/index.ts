@@ -333,7 +333,7 @@ app.post('/segment', async (c) => {
     });
 
     // 🎯 修复：创建 AudioSegmentWorker 实例并调用新的 segment() 方法
-    const worker = new AudioSegmentWorker(c.env, c.executionCtx);
+    const worker = new AudioSegmentWorker(c.executionCtx, c.env);
     const result = await worker.segment(data);
 
     console.log('[HTTP /segment] 新逻辑处理完成:', {
