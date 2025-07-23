@@ -35,5 +35,13 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 
-# 启动命令
-CMD ["python", "src/main.py"]
+# 启动前诊断
+RUN echo "🔍 启动前诊断信息:" && \
+    python --version && \
+    ls -la /app/src/ && \
+    python -c "import fastapi, uvicorn, boto3; print('✅ 基础依赖导入成功')" && \
+    echo "📂 当前工作目录: $(pwd)" && \
+    echo "🐍 Python路径: $PYTHONPATH"
+
+# 启动命令 - 使用绝对路径和详细错误输出
+CMD ["python", "-u", "/app/src/main.py"]
