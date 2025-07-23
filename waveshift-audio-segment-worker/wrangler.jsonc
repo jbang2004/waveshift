@@ -21,9 +21,9 @@
     }]
   },
   
-  // 容器迁移配置
+  // 容器迁移配置 - 使用新tag解决DO命名空间冲突
   "migrations": [{
-    "tag": "v1",
+    "tag": "v5", 
     "new_sqlite_classes": ["AudioSegmentContainer"]
   }],
   
