@@ -367,17 +367,18 @@ export function useMediaWorkflow(): MediaWorkflowState & MediaWorkflowActions {
 
         xhr.addEventListener('load', async () => {
           if (xhr.status === 200) {
-            try {
-              await fetch('/api/upload/confirm-upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ taskId, objectName, fileSize: file.size }),
-              });
-            } catch (confirmError) {
-              console.warn('数据库状态更新失败，但文件已成功上传:', confirmError);
-            }
-            
+            // 🚀 优化：立即返回，异步执行confirm
             resolve(publicUrl);
+            
+            // 🔄 异步确认上传，不阻塞用户体验
+            fetch('/api/upload/confirm-upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ taskId, objectName, fileSize: file.size }),
+            }).catch(confirmError => {
+              console.warn('💾 数据库状态更新失败，但文件已成功上传:', confirmError);
+              // 可以在这里添加重试逻辑或错误上报
+            });
           } else {
             reject(new Error(`上传失败: HTTP ${xhr.status} ${xhr.statusText}`));
           }
