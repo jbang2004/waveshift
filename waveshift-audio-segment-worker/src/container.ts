@@ -13,39 +13,12 @@ export class AudioSegmentContainer extends Container {
     
     try {
       // 确保容器已启动
+      console.log(`[AudioSegmentContainer] 🚀 启动Container...`);
       await this.start();
+      console.log(`[AudioSegmentContainer] ✅ Container启动完成`);
       
-      // 🔧 新增：检查FastAPI应用是否正常运行
-      try {
-        const healthCheck = await fetch(`http://localhost:${this.defaultPort}/health`, {
-          method: 'GET',
-          headers: { 'User-Agent': 'CloudflareContainer/1.0' }
-        });
-        
-        if (!healthCheck.ok) {
-          console.error(`[AudioSegmentContainer] FastAPI健康检查失败: ${healthCheck.status} ${healthCheck.statusText}`);
-          return new Response(JSON.stringify({
-            success: false,
-            error: `FastAPI未就绪: ${healthCheck.status} ${healthCheck.statusText}`,
-            suggestion: 'Container内部FastAPI应用可能未正确启动'
-          }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        
-        console.log(`[AudioSegmentContainer] FastAPI健康检查通过: ${healthCheck.status}`);
-      } catch (healthError) {
-        console.error(`[AudioSegmentContainer] FastAPI连接失败:`, healthError);
-        return new Response(JSON.stringify({
-          success: false,
-          error: `FastAPI连接失败: ${healthError instanceof Error ? healthError.message : 'Unknown error'}`,
-          suggestion: 'Container内部FastAPI应用可能未启动'
-        }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
+      // 🔧 临时跳过健康检查，直接尝试处理请求以获取更多诊断信息
+      console.log(`[AudioSegmentContainer] ⚠️ 跳过健康检查，直接转发请求进行诊断`);
       
       // 构建内部FastAPI应用URL
       const url = new URL(request.url);
@@ -90,33 +63,62 @@ export class AudioSegmentContainer extends Container {
       console.log(`[AudioSegmentContainer] 转发Headers: ${JSON.stringify(Object.fromEntries(cleanHeaders.entries()))}`);
       
       // 转发给内部FastAPI应用
+      console.log(`[AudioSegmentContainer] 🔄 转发请求到: ${targetUrl}`);
+      console.log(`[AudioSegmentContainer] 📋 请求方法: ${request.method}, Body大小: ${body ? body.byteLength : 0} bytes`);
+      
       const response = await fetch(forwardRequest);
       
-      console.log(`[AudioSegmentContainer] FastAPI响应: ${response.status} ${response.statusText}`);
+      console.log(`[AudioSegmentContainer] 📨 FastAPI响应: ${response.status} ${response.statusText}`);
+      console.log(`[AudioSegmentContainer] 📄 响应Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
       
       // 如果响应失败，记录更多错误信息
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[AudioSegmentContainer] FastAPI错误响应: ${errorText}`);
+        console.error(`[AudioSegmentContainer] ❌ FastAPI错误响应详情:`, {
+          status: response.status,
+          statusText: response.statusText,
+          errorBody: errorText,
+          requestUrl: targetUrl,
+          requestMethod: request.method
+        });
         
         return new Response(JSON.stringify({
           success: false,
           error: `FastAPI错误: ${response.status} ${response.statusText}`,
-          details: errorText
+          details: errorText,
+          diagnostics: {
+            targetUrl,
+            requestMethod: request.method,
+            bodySize: body ? body.byteLength : 0,
+            timestamp: new Date().toISOString()
+          }
         }), {
           status: response.status,
           headers: { 'Content-Type': 'application/json' }
         });
       }
       
+      console.log(`[AudioSegmentContainer] ✅ 成功转发请求，返回响应`);
       return response;
       
     } catch (error) {
-      console.error(`[AudioSegmentContainer] 转发请求失败:`, error);
+      console.error(`[AudioSegmentContainer] ❌ 转发请求异常:`, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        requestUrl: request.url,
+        requestMethod: request.method,
+        timestamp: new Date().toISOString()
+      });
       
       return new Response(JSON.stringify({
         success: false,
-        error: `Container转发失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: `Container转发异常: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        diagnostics: {
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+          requestUrl: request.url,
+          requestMethod: request.method,
+          timestamp: new Date().toISOString()
+        }
       }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
