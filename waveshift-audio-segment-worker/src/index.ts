@@ -189,8 +189,8 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
       this.env.AUDIO_SEGMENT_CONTAINER.idFromName("audio-segment")
     );
     
-    // 调用 Container 的简化接口
-    const response = await container.fetch(new Request('http://container/process-single', {
+    // 调用 Container 的根路径接口 - 类似FFmpeg Container模式
+    const response = await container.fetch(new Request('https://audio-segment/', {
       method: 'POST',
       body: audioData,
       headers: {

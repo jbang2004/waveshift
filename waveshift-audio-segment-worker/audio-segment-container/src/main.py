@@ -475,16 +475,28 @@ def create_r2_client(config: R2Config):
     )
 
 
+@app.get("/")
 @app.get("/health")
 async def health_check():
-    """健康检查"""
+    """健康检查 - 支持根路径和/health"""
     return {
         "status": "healthy",
         "service": "audio-segment-container-hybrid",
         "version": "2.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "note": "支持新接口 /process-single 和兼容接口 /segment"
+        "note": "支持根路径处理和 /process-single, /segment 端点"
     }
+
+@app.post("/")
+async def root_handler(request: Request):
+    """
+    🎯 根路径处理器：直接处理Container的默认请求
+    这与FFmpeg Container的模式一致，简化调用链
+    """
+    logger.info("🎯 根路径处理音频切分请求")
+    
+    # 直接调用process_single_segment的逻辑
+    return await process_single_segment(request)
 
 @app.post("/process-single")
 async def process_single_segment(request: Request):
