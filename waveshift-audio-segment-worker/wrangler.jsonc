@@ -21,10 +21,10 @@
     }]
   },
   
-  // 容器迁移配置 - 启用DO迁移以解决Container初始化问题
+  // 容器迁移配置 - 使用递增tag解决DO已存在冲突
   "migrations": [{
-    "tag": "v12", 
-    "new_sqlite_classes": ["AudioSegmentContainer"]
+    "tag": "v13"
+    // 移除new_sqlite_classes，因为AudioSegmentContainer已存在
   }],
   
   // 环境变量
