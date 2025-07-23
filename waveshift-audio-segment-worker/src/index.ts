@@ -355,8 +355,11 @@ app.post('/segment', async (c) => {
   }
 });
 
-// 导出
+// 导出 - 🔧 修复Service Binding entrypoint问题
 export { AudioSegmentContainer };
-export default {
+export { AudioSegmentWorker as default };
+
+// 保留Hono应用的兼容性导出
+export const honoApp = {
   fetch: app.fetch,
 };
