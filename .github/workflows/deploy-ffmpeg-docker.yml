@@ -8,11 +8,6 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    paths:
-      - 'waveshift-ffmpeg-worker/**'
-      - '.github/workflows/deploy-ffmpeg-docker.yml'
-    branches: [main]
 
 # ✅ Cloudflare 2025: 使用本地 Dockerfile，无需外部镜像注册表
 
