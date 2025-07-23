@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个媒体处理平台，包含四个主要组件：
+这是一个媒体处理平台，包含五个主要组件：
 
 1. **waveshift-frontend**: Next.js 前端应用，提供用户界面和媒体处理工作流
 2. **waveshift-workflow**: 工作流编排服务，协调各个处理步骤
 3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Cloudflare Containers + Rust + FFMPEG
 4. **waveshift-transcribe-worker**: 基于 Gemini API 的音频转录和翻译服务
+5. **waveshift-audio-segment-worker**: 音频切分服务，基于转录时间轴智能分割音频片段 (新增)
 
 ## 开发命令
 
@@ -28,6 +29,7 @@ npm run dev:frontend     # 只启动前端
 npm run dev:workflow     # 只启动工作流服务
 npm run dev:ffmpeg       # 只启动FFmpeg服务
 npm run dev:transcribe   # 只启动转录服务
+npm run dev:audio        # 只启动音频切分服务
 ```
 
 ### 前端应用 (waveshift-frontend)
@@ -97,7 +99,51 @@ npm run deploy           # 部署到 Cloudflare Workers
 wrangler secret put GEMINI_API_KEY
 ```
 
+### 音频切分服务 (waveshift-audio-segment-worker) ⚠️ 新增
+```bash
+cd waveshift-audio-segment-worker
+
+# 本地开发 (需要 Docker)
+# 终端1: 构建并运行容器
+docker build -t audio-segment-container .
+docker run -p 8080:8080 audio-segment-container
+
+# 终端2: 运行 Cloudflare Worker
+npm run dev              # 启动开发服务器 (http://localhost:8787)
+
+# 🚀 推荐部署方式：使用 GitHub Actions Container 部署
+# 从根目录运行：
+npm run deploy:audio     # 部署音频切分服务
+
+# 本地部署 (需要本地 Docker 环境)
+npm run deploy           # 构建容器并部署 Worker
+
+# 配置环境变量
+# GAP_DURATION_MS=500            # 句子间gap静音时长
+# MAX_DURATION_MS=12000          # 最大片段时长（包含gap）
+# MIN_DURATION_MS=1000           # 最小保留时长
+# GAP_THRESHOLD_MULTIPLIER=3     # 间隔检测倍数
+```
+
 ## 架构说明
+
+### 音频切分服务架构 ⭐ **新增功能**
+- **技术栈**: TypeScript Worker + Rust 容器 + FFMPEG + Cloudflare R2
+- **核心功能**: 基于转录时间轴智能分割音频片段，生成独立的音频文件
+- **流式处理**: 实时处理转录数据，避免重复查询数据库
+- **智能合并**: 根据说话人、时间间隔、片段长度自动合并短句
+- **参数化配置**: 通过环境变量灵活控制切分策略
+- **请求流程**:
+  1. Workflow 提供音频文件和转录数据
+  2. Worker 通过 Durable Object 转发请求到 Rust 容器  
+  3. 容器基于时间轴使用 FFMPEG 切分音频
+  4. 切分后的文件上传到 R2 存储
+  5. 返回切分结果和文件 URL 映射
+- **切分策略**:
+  - **Gap静音填充**: 在句子间隙填充静音，确保播放连贯性
+  - **最大时长限制**: 防止单个片段过长影响播放体验  
+  - **最小时长过滤**: 过滤掉过短的孤立片段，保留连续对话
+  - **说话人连续性**: 相同说话人的连续语句智能合并
 
 ### Gemini 转录服务架构
 - **技术栈**: TypeScript + Cloudflare Workers + Google Gemini API
@@ -120,12 +166,15 @@ wrangler secret put GEMINI_API_KEY
   6. 返回 R2 URL 供前端播放和下载
 
 ### 关键组件
-- **gemini-transcribe-worker/src/index.ts**: 转录服务 Worker 入口点
-- **gemini-transcribe-worker/src/gemini-client.ts**: Gemini API 客户端，支持流式响应
-- **seprate_worker/src/index.ts**: Wifski Worker 入口点，处理路由和容器管理
-- **seprate_worker/wifski-container/src/main.rs**: Rust 服务器，执行 FFMPEG 命令
+- **waveshift-audio-segment-worker/src/index.ts**: 音频切分服务 Worker 入口点 (新增)
+- **waveshift-audio-segment-worker/container/src/main.rs**: Rust 音频切分服务器 (新增)
+- **waveshift-transcribe-worker/src/index.ts**: 转录服务 Worker 入口点
+- **waveshift-transcribe-worker/src/gemini-client.ts**: Gemini API 客户端，支持流式响应
+- **waveshift-ffmpeg-worker/src/index.ts**: FFmpeg Worker 入口点，处理路由和容器管理
+- **waveshift-ffmpeg-worker/container/src/main.rs**: Rust 服务器，执行 FFMPEG 命令
 - **waveshift-workflow/src/utils/transcription-merger.ts**: 转录片段实时合并和标记逻辑
 - **waveshift-workflow/src/utils/database.ts**: 数据库操作，包含 is_first/is_last 标记函数
+- **waveshift-workflow/src/sep-trans.ts**: 主工作流，协调音视频分离、转录、音频切分的完整流程
 
 ## 技术细节
 
@@ -345,6 +394,127 @@ wrangler secret put GEMINI_API_KEY
    - 直接使用 `wrangler deploy`
    - Cloudflare 会处理容器构建
 
+### Service Binding 故障排除 🚨 **重要**
+
+#### ❌ **"force-delete" 错误 (2025-07 已解决)**
+- **症状**: 
+  ```javascript
+  {error: 'Failed to process media task', details: 'this worker has been deleted via a force-delete'}
+  ```
+- **根本原因**:
+  1. **Service Binding 缓存失效**: Worker删除/重建后，Service Binding 引用过期
+  2. **级联依赖失败**: 一个服务删除导致整个链条的Service Binding失效
+  3. **缓存污染**: Cloudflare 边缘缓存保存了已删除Worker的引用
+
+- **✅ 解决方案 - 按序重新部署**:
+  ```bash
+  # 🔄 必须按依赖顺序重新部署所有相关服务
+  
+  # 1. 重新部署基础服务
+  cd waveshift-audio-segment-worker && npm run deploy
+  cd ../waveshift-ffmpeg-worker && npm run deploy
+  cd ../waveshift-transcribe-worker && npm run deploy
+  
+  # 2. 重新部署依赖服务 (刷新Service Binding)
+  cd ../waveshift-workflow && npm run deploy
+  
+  # 3. 重新部署前端 (刷新对workflow的binding)
+  cd ../waveshift-frontend && npm run deploy
+  ```
+
+- **⚠️ 关键原理**:
+  - **Service Binding 机制**: 每个Worker在部署时会缓存其绑定服务的引用
+  - **缓存失效**: 当被绑定的服务删除时，缓存引用变为无效
+  - **手动刷新**: 只有重新部署依赖方才能刷新Service Binding缓存
+  - **边缘一致性**: 需要等待Cloudflare全球边缘节点同步(~30秒)
+
+#### 🔧 **Service Binding 最佳实践**
+1. **避免删除Worker**: 
+   - ✅ 使用 `wrangler deploy` 更新现有Worker
+   - ❌ 避免 `wrangler delete` 后重新创建
+   - ✅ 迁移DO时使用新的migration tag而非删除
+
+2. **依赖顺序部署**:
+   ```bash
+   # 正确的部署顺序 (从底层到顶层)
+   audio-segment → ffmpeg → transcribe → workflow → frontend
+   ```
+
+3. **故障检测命令**:
+   ```bash
+   # 检查Service Binding状态
+   wrangler tail waveshift-workflow --format pretty
+   
+   # 查看具体错误信息
+   curl -X POST "https://waveshift-frontend.xxx.workers.dev/api/workflow/test/process" \
+        -H "Content-Type: application/json" \
+        -d '{"targetLanguage":"chinese"}'
+   ```
+
+4. **预防措施**:
+   - 📋 使用GitHub Actions统一部署，避免手动删除
+   - 🔄 定期验证Service Binding连通性
+   - 📊 监控Worker间调用的成功率和延迟
+
+### 数据库字段同步问题 🔄
+
+#### ❌ **D1与项目字段名不匹配错误**
+- **症状**: 
+  ```sql
+  Error: no such column: original_text
+  Error: no such column: translated_text
+  ```
+- **根本原因**: D1数据库使用`original`/`translation`，项目代码使用`original_text`/`translated_text`
+
+- **✅ 解决方案 - 统一字段名**:
+  ```bash
+  # 1. 确认D1实际字段结构
+  wrangler d1 execute waveshift-database --command "PRAGMA table_info(transcription_segments);"
+  
+  # 2. 更新项目代码字段名
+  # frontend/db/schema-media.ts
+  original: text('original').notNull(),
+  translation: text('translation').notNull(),
+  
+  # 3. 更新所有SQL查询
+  # workflow/src/utils/database.ts
+  INSERT INTO transcription_segments (..., original, translation, ...)
+  ```
+
+- **检查清单**:
+  - [ ] `waveshift-frontend/db/schema-media.ts`: Drizzle schema定义
+  - [ ] `waveshift-frontend/app/api/setup/route.ts`: 建表SQL语句  
+  - [ ] `waveshift-workflow/src/utils/database.ts`: 插入/查询SQL
+  - [ ] `waveshift-workflow/src/sep-trans.ts`: 数据处理逻辑
+
+### Durable Object 迁移问题 🔄
+
+#### ❌ **"Cannot apply new-sqlite-class migration" 错误**
+- **症状**:
+  ```
+  Cannot apply new-sqlite-class migration to class 'AudioSegmentContainer' 
+  that is already depended on by existing Durable Objects
+  ```
+- **根本原因**: DO命名空间已存在，无法应用新的SQLite类迁移
+
+- **✅ 解决方案 - 增量迁移**:
+  ```json
+  // wrangler.jsonc - 使用新的migration tag
+  "migrations": [{
+    "tag": "v10",  // 递增版本号
+    "new_sqlite_classes": ["AudioSegmentContainer"]
+  }]
+  ```
+
+- **迁移历史跟踪**:
+  ```bash
+  # 查看当前迁移状态
+  wrangler d1 migrations list waveshift-database
+  
+  # 查看DO命名空间
+  wrangler durable-objects namespace list
+  ```
+
 ### Wifski 常见问题
 1. **容器启动失败**
    - 确保 Docker 运行正常
@@ -381,15 +551,31 @@ npm run deploy:smart -- --all
 ```bash
 npm run deploy:frontend     # 前端应用
 npm run deploy:workflow     # 工作流服务
-npm run deploy:ffmpeg       # FFmpeg Worker
+npm run deploy:ffmpeg       # FFmpeg Worker (本地部署)
 npm run deploy:transcribe   # 转录服务
+npm run deploy:audio        # 音频切分服务 (本地部署)
+
+# Container服务推荐使用GitHub Actions部署:
+# 手动触发 (推荐):
+gh workflow run "Deploy FFmpeg Worker (Alpine Container)"
+gh workflow run "Deploy Audio Segment Worker (Container)"
 ```
 
 ### ⚠️ 部署顺序 (必须按序执行)
-1. **waveshift-ffmpeg-worker** - 音视频处理服务
-2. **waveshift-transcribe-worker** - AI转录服务
-3. **waveshift-workflow** - 工作流编排服务 (依赖上述两个服务)
-4. **waveshift-frontend** - 前端应用 (依赖工作流服务)
+1. **waveshift-audio-segment-worker** - 音频切分服务 (新增)
+2. **waveshift-ffmpeg-worker** - 音视频分离服务  
+3. **waveshift-transcribe-worker** - AI转录服务
+4. **waveshift-workflow** - 工作流编排服务 (依赖上述三个服务)
+5. **waveshift-frontend** - 前端应用 (依赖工作流服务)
+
+**🔄 Service Binding 依赖关系**:
+```
+audio-segment ←── workflow ←── frontend
+ffmpeg        ←──     ↑
+transcribe    ←──     ↑
+```
+
+**重要**: 如果任一基础服务(1-3)被删除/重建，必须按序重新部署所有依赖服务以刷新Service Binding缓存。
 
 ### 环境变量配置
 确保设置以下环境变量或GitHub Secrets：
@@ -449,11 +635,31 @@ curl -I https://pub-waveshift-media.r2.dev/test-file.txt
 ```
 
 ### 🚀 GitHub Actions Container 部署 (推荐)
-适用于 **waveshift-ffmpeg-worker** 等需要容器的服务：
+适用于 **所有Container服务**：waveshift-ffmpeg-worker, waveshift-audio-segment-worker
 
+#### **🎯 手动触发部署** (推荐方式)
 ```bash
-# 从根目录运行
-npm run deploy:docker
+# 手动触发FFmpeg Container部署
+gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=false
+
+# 手动触发Audio Segment Container部署  
+gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=false
+
+# 强制重建镜像
+gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=true
+gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=true
+```
+
+#### **🔄 自动触发部署**
+```bash
+# 修改相关文件后git push会自动触发
+git add waveshift-ffmpeg-worker/
+git commit -m "更新FFmpeg Container"
+git push  # 自动触发FFmpeg部署
+
+git add waveshift-audio-segment-worker/
+git commit -m "更新Audio Segment Container" 
+git push  # 自动触发Audio Segment部署
 ```
 
 **优势**：
@@ -465,8 +671,9 @@ npm run deploy:docker
 - ✅ **简化的部署流程** - 直接 `wrangler deploy`
 
 **GitHub Actions 工作流**：
-- `deploy-ffmpeg-docker.yml`: 专门用于 FFmpeg Worker 的 Container 部署
-- `deploy-services.yml`: 通用服务部署，包含基本 Docker 支持
+- `deploy-ffmpeg-docker.yml`: FFmpeg Worker Container 部署 (Rust + Alpine)
+- `deploy-audio-segment.yml`: Audio Segment Worker Container 部署 (Python + FastAPI)
+- 两者都支持手动触发和自动触发，配置完全一致
 
 **⚠️ 重要变更 (2025-07)**：
 - 不再构建和推送到外部镜像注册表
@@ -478,17 +685,23 @@ npm run deploy:docker
 ```bash
 # 1. 检查容器日志
 wrangler tail waveshift-ffmpeg-worker --format pretty
+wrangler tail waveshift-audio-segment-worker --format pretty
 
 # 2. 手动触发GitHub Actions部署
 gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=true
+gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=true
 
 # 3. 监控部署进度
 gh run watch $(gh run list --workflow="Deploy FFmpeg Worker (Alpine Container)" --limit=1 --json id -q '.[0].id')
+gh run watch $(gh run list --workflow="Deploy Audio Segment Worker (Container)" --limit=1 --json id -q '.[0].id')
 
 # 4. 验证容器配置
-cd waveshift-ffmpeg-worker
-grep -A 5 "containers" wrangler.jsonc
-grep "FROM" Dockerfile
+cd waveshift-ffmpeg-worker && grep -A 5 "containers" wrangler.jsonc && grep "FROM" Dockerfile
+cd waveshift-audio-segment-worker && grep -A 5 "containers" wrangler.jsonc && grep "FROM" Dockerfile
+
+# 5. 健康检查
+curl https://waveshift-ffmpeg-worker.jbang20042004.workers.dev/health || echo "FFmpeg无健康检查端点"
+curl https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health
 ```
 
 ### 🔧 本地部署
@@ -556,6 +769,37 @@ FROM alfg/ffmpeg  # 仅106MB, 启动快
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/separate-container ./
 CMD ["./separate-container"]
+```
+
+#### waveshift-audio-segment-worker (新增服务) ⚠️ 重要
+- [ ] ✅ **DO迁移配置** - 使用递增的migration tag (v10, v11...)
+- [ ] ✅ **Container绑定** - 确保Container和DO class_name匹配
+- [ ] ✅ **环境变量配置** - 音频切分参数 (GAP_DURATION_MS, MAX_DURATION_MS等)
+- [ ] ✅ **R2存储绑定** - 音频片段输出存储
+- [ ] 避免删除DO，使用新migration tag处理冲突
+
+**🎯 推荐配置 (audio-segment)**：
+```json
+// wrangler.jsonc
+{
+  "containers": [{
+    "name": "waveshift-audio-segment-container",
+    "class_name": "AudioSegmentContainer",
+    "image": "./Dockerfile",
+    "instance_type": "standard",
+    "max_instances": 3
+  }],
+  "durable_objects": {
+    "bindings": [{
+      "name": "AUDIO_SEGMENT_CONTAINER",
+      "class_name": "AudioSegmentContainer"
+    }]
+  },
+  "migrations": [{
+    "tag": "v10",  // 根据实际情况递增
+    "new_sqlite_classes": ["AudioSegmentContainer"]
+  }]
+}
 ```
 
 #### waveshift-transcribe-worker

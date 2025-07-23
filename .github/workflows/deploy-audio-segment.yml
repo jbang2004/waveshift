@@ -64,10 +64,15 @@ jobs:
           echo "📋 wrangler.jsonc container config:"
           grep -A 5 "containers" wrangler.jsonc
 
-      # R2 Secrets 配置 - 暂时跳过，手动配置
-      # 运行以下命令手动设置:
-      # wrangler secret put R2_ACCESS_KEY_ID
-      # wrangler secret put R2_SECRET_ACCESS_KEY
+      # 🔐 R2 Secrets配置提醒
+      - name: Check R2 secrets configuration
+        run: |
+          echo "🔐 请确保已手动配置R2访问密钥:"
+          echo "  cd waveshift-audio-segment-worker"
+          echo "  echo 'your_access_key' | wrangler secret put R2_ACCESS_KEY_ID"
+          echo "  echo 'your_secret_key' | wrangler secret put R2_SECRET_ACCESS_KEY"
+          echo ""
+          echo "⚠️ 如未配置R2密钥，Container可能无法正常访问R2存储"
 
       - name: Deploy to Cloudflare Workers (Container)
         uses: cloudflare/wrangler-action@v3
