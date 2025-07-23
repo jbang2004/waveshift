@@ -15,6 +15,38 @@ export class AudioSegmentContainer extends Container {
       // 确保容器已启动
       await this.start();
       
+      // 🔧 新增：检查FastAPI应用是否正常运行
+      try {
+        const healthCheck = await fetch(`http://localhost:${this.defaultPort}/health`, {
+          method: 'GET',
+          headers: { 'User-Agent': 'CloudflareContainer/1.0' }
+        });
+        
+        if (!healthCheck.ok) {
+          console.error(`[AudioSegmentContainer] FastAPI健康检查失败: ${healthCheck.status} ${healthCheck.statusText}`);
+          return new Response(JSON.stringify({
+            success: false,
+            error: `FastAPI未就绪: ${healthCheck.status} ${healthCheck.statusText}`,
+            suggestion: 'Container内部FastAPI应用可能未正确启动'
+          }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        console.log(`[AudioSegmentContainer] FastAPI健康检查通过: ${healthCheck.status}`);
+      } catch (healthError) {
+        console.error(`[AudioSegmentContainer] FastAPI连接失败:`, healthError);
+        return new Response(JSON.stringify({
+          success: false,
+          error: `FastAPI连接失败: ${healthError instanceof Error ? healthError.message : 'Unknown error'}`,
+          suggestion: 'Container内部FastAPI应用可能未启动'
+        }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
       // 构建内部FastAPI应用URL
       const url = new URL(request.url);
       const targetUrl = `http://localhost:${this.defaultPort}${url.pathname}${url.search}`;
