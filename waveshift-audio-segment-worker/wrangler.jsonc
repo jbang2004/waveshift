@@ -21,11 +21,11 @@
     }]
   },
   
-  // 容器迁移配置 - AudioSegmentContainer已存在，无需迁移
-  // "migrations": [{
-  //   "tag": "v11", 
-  //   "new_sqlite_classes": ["AudioSegmentContainer"]
-  // }],
+  // 容器迁移配置 - 启用DO迁移以解决Container初始化问题
+  "migrations": [{
+    "tag": "v12", 
+    "new_sqlite_classes": ["AudioSegmentContainer"]
+  }],
   
   // 环境变量
   "vars": {
