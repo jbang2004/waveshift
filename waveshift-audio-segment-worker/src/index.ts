@@ -23,8 +23,9 @@ app.get('/health', (c) => {
   return c.json({ 
     status: 'healthy',
     service: 'audio-segment-worker',
+    version: '3.0',
     timestamp: new Date().toISOString(),
-    note: 'Container功能开发中，当前返回模拟数据'
+    note: 'Smart audio segmentation with reuse optimization'
   });
 });
 
@@ -32,14 +33,17 @@ app.get('/health', (c) => {
 app.get('/', (c) => {
   return c.html(`
     <h1>WaveShift Audio Segment Service</h1>
-    <p>智能音频切分服务，基于转录数据和说话人信息进行音频片段提取</p>
-    <h2>API Endpoints:</h2>
+    <p>智能音频切分服务 - 基于转录数据进行音频片段智能提取和复用</p>
+    <h2>特性:</h2>
     <ul>
-      <li>POST /segment - 音频切分</li>
-      <li>GET /health - 健康检查</li>
+      <li>🎯 智能音频切分（最长12秒）</li>
+      <li>🔄 音频复用优化</li>
+      <li>📊 实时D1数据库更新</li>
+      <li>🚀 高性能Container处理</li>
     </ul>
-    <h3>状态：开发中</h3>
-    <p>Container功能正在开发中，当前返回模拟数据</p>
+    <h2>Architecture:</h2>
+    <p>Worker (业务逻辑 + R2/D1) + Container (纯FFmpeg处理)</p>
+    <h3>✅ Production Ready</h3>
   `);
 });
 
