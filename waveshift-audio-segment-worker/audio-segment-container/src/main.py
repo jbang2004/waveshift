@@ -757,4 +757,24 @@ async def execute_ffmpeg_for_ranges(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    import logging
+    
+    # 配置更详细的启动日志
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info("🚀 启动 FastAPI 音频切分服务...")
+    logger.info(f"📡 监听地址: 0.0.0.0:8080")
+    logger.info(f"🎵 支持端点: /health, /process-single, /segment")
+    
+    try:
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=8080,
+            log_level="info",
+            access_log=True
+        )
+    except Exception as e:
+        logger.error(f"❌ FastAPI 启动失败: {e}")
+        raise

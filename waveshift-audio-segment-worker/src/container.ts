@@ -17,8 +17,10 @@ export class AudioSegmentContainer extends Container {
       await this.start();
       console.log(`[AudioSegmentContainer] ✅ Container启动完成`);
       
-      // 🔧 临时跳过健康检查，直接尝试处理请求以获取更多诊断信息
-      console.log(`[AudioSegmentContainer] ⚠️ 跳过健康检查，直接转发请求进行诊断`);
+      // 🔧 等待FastAPI应用完全启动 (给Python应用充足启动时间)
+      console.log(`[AudioSegmentContainer] ⏳ 等待FastAPI应用启动...`);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 等待2秒
+      console.log(`[AudioSegmentContainer] ✅ FastAPI应用启动等待完成`);
       
       // 构建内部FastAPI应用URL
       const url = new URL(request.url);
