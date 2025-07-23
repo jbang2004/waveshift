@@ -255,7 +255,8 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				const result = await env.AUDIO_SEGMENT_SERVICE.segment({
 					audioKey: audioKey,
 					transcripts,
-					outputPrefix
+					outputPrefix,
+					transcriptionId: transcriptionResult.transcriptionId  // 🔧 修复：添加转录ID用于D1更新
 					// 注意：切分参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 				});
 				

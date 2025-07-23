@@ -2,6 +2,7 @@ export interface AudioSegmentRequest {
   audioKey: string;             // R2 中的音频文件 key
   transcripts: TranscriptItem[]; // 转录数据
   outputPrefix: string;         // 输出文件前缀
+  transcriptionId?: string;     // D1 转录记录 ID（可选，用于更新 audio_key）
   // 注意：切分参数现在通过环境变量配置：
   // GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 }
@@ -41,6 +42,7 @@ export interface AudioSegment {
 
 export interface Env {
   AUDIO_SEGMENT_CONTAINER: DurableObjectNamespace;
+  DB: D1Database;
   R2_BUCKET: R2Bucket;
   CLOUDFLARE_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;

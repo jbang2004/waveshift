@@ -1,8 +1,13 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { AudioSegmentRequest, AudioSegmentResponse, TranscriptItem, Env } from './types';
+import type { AudioSegmentRequest, AudioSegmentResponse, Env } from './types';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { AudioSegmentContainer } from './container';
+import { 
+  AudioSegmenter, 
+  StreamingAccumulator, 
+  type AudioSegmentConfig 
+} from './streaming-processor';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -42,92 +47,246 @@ app.get('/', (c) => {
 export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
   /**
    * 音频切分方法，供Service Binding调用
+   * 新架构：Worker 处理业务逻辑 + 混合更新策略
    */
   async segment(request: AudioSegmentRequest): Promise<AudioSegmentResponse> {
     console.log('[AudioSegmentWorker] 收到切分请求:', {
       audioKey: request.audioKey,
       transcriptCount: request.transcripts.length,
-      outputPrefix: request.outputPrefix
+      outputPrefix: request.outputPrefix,
+      transcriptionId: request.transcriptionId
     });
 
     try {
-      // 获取Container实例
-      const id = this.env.AUDIO_SEGMENT_CONTAINER.idFromName("audio-segment");
-      const container = this.env.AUDIO_SEGMENT_CONTAINER.get(id);
-
-      // 准备请求数据
-      const containerRequest = new Request('http://container/segment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...request,
-          r2Config: {
-            accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-            accessKeyId: this.env.R2_ACCESS_KEY_ID,
-            secretAccessKey: this.env.R2_SECRET_ACCESS_KEY,
-            bucketName: this.env.R2_BUCKET_NAME,
-            publicDomain: this.env.R2_PUBLIC_DOMAIN,
-          }
-        })
-      });
-
-      // 调用Container
-      const response = await container.fetch(containerRequest);
+      // 🎯 步骤1: Worker 下载音频数据
+      const audioData = await this.downloadAudioFromR2(request.audioKey);
       
-      if (!response.ok) {
-        const error = await response.text();
-        console.error('[AudioSegmentWorker] Container返回错误:', error);
-        return {
-          success: false,
-          error: `Container error: ${error}`
-        };
+      // 🎯 步骤2: Worker 执行流式处理逻辑
+      const segmentConfig: AudioSegmentConfig = {
+        gapDurationMs: parseInt(this.env.GAP_DURATION_MS || '500'),
+        maxDurationMs: parseInt(this.env.MAX_DURATION_MS || '12000'),
+        minDurationMs: parseInt(this.env.MIN_DURATION_MS || '1000'),
+        gapThresholdMultiplier: parseInt(this.env.GAP_THRESHOLD_MULTIPLIER || '3')
+      };
+      
+      const segmenter = new AudioSegmenter(segmentConfig);
+      const accumulators = segmenter.processTranscriptsStreaming(request.transcripts);
+      
+      if (accumulators.length === 0) {
+        console.log('[AudioSegmentWorker] 没有需要处理的音频片段');
+        return { success: true, segments: [], sentenceToSegmentMap: {} };
       }
-
-      // 解析响应
-      const result = await response.json() as AudioSegmentResponse;
+      
+      // 🎯 步骤3: 流式处理每个累积器，实时上传 R2
+      const segments = [];
+      const d1Updates: Array<{sequence: number, audioKey: string}> = [];
+      
+      for (const accumulator of accumulators) {
+        // 检查是否符合最小时长要求
+        if (!segmenter.shouldKeepSegment(accumulator)) {
+          continue;
+        }
+        
+        // Container 处理音频
+        const segment = await this.processAccumulatorWithContainer(
+          accumulator, 
+          audioData, 
+          request.outputPrefix,
+          segmentConfig.gapDurationMs
+        );
+        
+        if (!segment) {
+          console.error(`[AudioSegmentWorker] 处理片段失败: ${accumulator.generateSegmentId()}`);
+          continue;
+        }
+        
+        // 🚀 立即上传到 R2 （实时反馈）
+        await this.env.R2_BUCKET.put(segment.audioKey, segment.audioData, {
+          httpMetadata: { contentType: 'audio/wav' }
+        });
+        
+        console.log(`✅ R2上传完成: ${segment.audioKey}`);
+        
+        // 🔄 标记音频已生成，支持后续复用
+        accumulator.markAudioGenerated(segment.audioKey);
+        
+        // 📝 收集 D1 更新数据（包括复用句子）
+        for (const sentence of accumulator.getAllSentences()) {
+          d1Updates.push({
+            sequence: sentence.sequence,
+            audioKey: segment.audioKey
+          });
+        }
+        
+        // 移除 audioData 减少内存占用
+        delete segment.audioData;
+        segments.push(segment);
+      }
+      
+      // 🎯 步骤4: 批量更新 D1 数据库
+      if (d1Updates.length > 0 && request.transcriptionId) {
+        await this.batchUpdateD1AudioKeys(request.transcriptionId, d1Updates);
+        console.log(`✅ D1批量更新完成: ${d1Updates.length} 条记录`);
+      }
+      
+      // 🎯 步骤5: 生成句子映射关系
+      const sentenceToSegmentMap = segmenter.generateSentenceToSegmentMap(accumulators);
+      
       console.log('[AudioSegmentWorker] 切分完成:', {
-        success: result.success,
-        segmentCount: result.segments?.length || 0
+        success: true,
+        segmentCount: segments.length,
+        d1UpdateCount: d1Updates.length
       });
 
-      return result;
-
-    } catch (error) {
-      console.error('[AudioSegmentWorker] 容器不可用，返回模拟数据:', error);
-      
-      // 容器不可用时返回模拟数据
-      const mockSegments = request.transcripts.map((transcript: TranscriptItem, index: number) => {
-        const segmentKey = `${request.outputPrefix}/segment_${String(index + 1).padStart(3, '0')}.mp3`;
-        const startMs = transcript.startMs;
-        const endMs = transcript.endMs;
-        return {
-          segmentId: `mock_segment_${Date.now()}_${index}`,
-          audioKey: segmentKey,
-          speaker: transcript.speaker,
-          startMs: startMs,
-          endMs: endMs,
-          durationMs: endMs - startMs,
-          sentences: [{
-            sequence: transcript.sequence,
-            original: transcript.original,
-            translation: transcript.translation
-          }]
-        };
-      });
-
-      console.log('[AudioSegmentWorker] 返回模拟数据片段:', mockSegments.length);
-      
       return {
         success: true,
-        segments: mockSegments,
-        note: '容器不可用，返回模拟数据 - 容器部署完成后将处理真实音频',
-        containerStatus: 'unavailable'
+        segments,
+        sentenceToSegmentMap
+      };
+
+    } catch (error) {
+      console.error('[AudioSegmentWorker] 处理失败:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
 
+  /**
+   * 从 R2 下载音频文件
+   */
+  private async downloadAudioFromR2(audioKey: string): Promise<ArrayBuffer> {
+    console.log(`📥 从 R2 下载音频: ${audioKey}`);
+    
+    const audioObject = await this.env.R2_BUCKET.get(audioKey);
+    if (!audioObject) {
+      throw new Error(`音频文件不存在: ${audioKey}`);
+    }
+    
+    const audioData = await audioObject.arrayBuffer();
+    console.log(`📥 音频下载完成: ${audioData.byteLength} bytes`);
+    
+    return audioData;
+  }
+
+  /**
+   * 使用 Container 处理单个累积器
+   */
+  private async processAccumulatorWithContainer(
+    accumulator: StreamingAccumulator,
+    audioData: ArrayBuffer,
+    outputPrefix: string,
+    gapDurationMs: number
+  ): Promise<any> {
+    const segmentId = accumulator.generateSegmentId();
+    const audioKey = accumulator.generateAudioKey(outputPrefix);
+    
+    console.log(`🎵 处理音频片段: ${segmentId}, 时间范围: ${accumulator.timeRanges.length}段`);
+    
+    // 获取 Container 实例
+    const container = this.env.AUDIO_SEGMENT_CONTAINER.get(
+      this.env.AUDIO_SEGMENT_CONTAINER.idFromName("audio-segment")
+    );
+    
+    // 调用 Container 的简化接口
+    const response = await container.fetch(new Request('http://container/process-single', {
+      method: 'POST',
+      body: audioData,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Time-Ranges': JSON.stringify(accumulator.timeRanges),
+        'X-Segment-Id': segmentId,
+        'X-Speaker': accumulator.speaker,
+        'X-Gap-Duration': gapDurationMs.toString()
+      }
+    }));
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`Container 处理失败: ${error}`);
+      return null;
+    }
+    
+    const result = await response.arrayBuffer();
+    
+    return {
+      segmentId,
+      audioKey,
+      speaker: accumulator.speaker,
+      startMs: accumulator.timeRanges[0][0],
+      endMs: accumulator.timeRanges[accumulator.timeRanges.length - 1][1],
+      durationMs: accumulator.getTotalDuration(gapDurationMs),
+      sentences: accumulator.getAllSentences().map(s => ({
+        sequence: s.sequence,
+        original: s.original,
+        translation: s.translation
+      })),
+      audioData: result  // 用于 R2 上传
+    };
+  }
+
+  /**
+   * 批量更新 D1 数据库中的 audio_key 字段
+   */
+  private async batchUpdateD1AudioKeys(
+    transcriptionId: string,
+    updates: Array<{sequence: number, audioKey: string}>
+  ): Promise<void> {
+    console.log(`💾 开始批量更新 D1: transcriptionId=${transcriptionId}, 更新数量=${updates.length}`);
+    
+    // 🚀 按 audioKey 分组，减少 SQL 调用次数
+    const groupedUpdates = new Map<string, number[]>();
+    
+    for (const update of updates) {
+      if (!groupedUpdates.has(update.audioKey)) {
+        groupedUpdates.set(update.audioKey, []);
+      }
+      groupedUpdates.get(update.audioKey)!.push(update.sequence);
+    }
+    
+    console.log(`📝 分组优化: ${updates.length} 条更新 → ${groupedUpdates.size} 个SQL语句`);
+    
+    // 🎯 并行执行分组更新
+    const updatePromises = Array.from(groupedUpdates.entries()).map(
+      async ([audioKey, sequences]) => {
+        try {
+          const placeholders = sequences.map(() => '?').join(',');
+          
+          const result = await this.env.DB.prepare(`
+            UPDATE transcription_segments 
+            SET audio_key = ? 
+            WHERE transcription_id = ? 
+            AND sequence IN (${placeholders})
+          `).bind(audioKey, transcriptionId, ...sequences).run();
+          
+          console.log(`✅ D1更新成功: ${audioKey} → ${sequences.length}句 (影响${result.meta.changes}行)`);
+          
+          return { success: true, audioKey, updateCount: sequences.length, changes: result.meta.changes };
+        } catch (error) {
+          console.error(`❌ D1更新失败: ${audioKey}`, error);
+          return { success: false, audioKey, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+      }
+    );
+    
+    // 等待所有更新完成
+    const results = await Promise.all(updatePromises);
+    
+    // 统计结果
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.filter(r => !r.success).length;
+    const totalChanges = results
+      .filter(r => r.success && 'changes' in r)
+      .reduce((sum, r) => sum + (r.changes || 0), 0);
+    
+    console.log(`📊 D1批量更新完成: 成功${successCount}/${results.length}, 总影响行数=${totalChanges}`);
+    
+    if (failureCount > 0) {
+      const failures = results.filter(r => !r.success);
+      console.warn(`⚠️ 部分更新失败:`, failures.map(f => ({ audioKey: f.audioKey, error: f.error })));
+    }
+  }
 
   /**
    * HTTP fetch处理器
@@ -161,76 +320,37 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> {
 }
 
 
-// 添加 /segment 路由到主应用
+// 添加 /segment 路由到主应用 - 🔧 修复：调用新的重构逻辑
 app.post('/segment', async (c) => {
   try {
     const data = await c.req.json() as AudioSegmentRequest;
     
-    console.log('[HTTP /segment] 收到切分请求:', {
+    console.log('[HTTP /segment] 收到切分请求，调用新的重构逻辑:', {
       audioKey: data.audioKey,
       transcriptCount: data.transcripts?.length || 0,
-      outputPrefix: data.outputPrefix
+      outputPrefix: data.outputPrefix,
+      transcriptionId: data.transcriptionId  // 🔧 显示transcriptionId
     });
 
-    // 直接尝试访问容器
-    const id = c.env.AUDIO_SEGMENT_CONTAINER.idFromName("audio-segment");
-    const container = c.env.AUDIO_SEGMENT_CONTAINER.get(id);
+    // 🎯 修复：创建 AudioSegmentWorker 实例并调用新的 segment() 方法
+    const worker = new AudioSegmentWorker(c.env, c.executionCtx);
+    const result = await worker.segment(data);
 
-    // 准备请求数据
-    const containerRequest = new Request('http://container/segment', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...data,
-        r2Config: {
-          accountId: c.env.CLOUDFLARE_ACCOUNT_ID,
-          accessKeyId: c.env.R2_ACCESS_KEY_ID,
-          secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
-          bucketName: c.env.R2_BUCKET_NAME,
-          publicDomain: c.env.R2_PUBLIC_DOMAIN,
-        },
-        segmentConfig: {
-          gapDurationMs: parseInt(c.env.GAP_DURATION_MS || '500'),
-          maxDurationMs: parseInt(c.env.MAX_DURATION_MS || '12000'),
-          minDurationMs: parseInt(c.env.MIN_DURATION_MS || '1000'),
-          gapThresholdMultiplier: parseInt(c.env.GAP_THRESHOLD_MULTIPLIER || '3')
-        }
-      })
-    });
-
-    console.log('[HTTP /segment] 调用容器...');
-    
-    // 调用Container
-    const response = await container.fetch(containerRequest);
-    
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('[HTTP /segment] Container返回错误:', error);
-      return c.json({
-        success: false,
-        error: `Container error: ${error}`,
-        containerStatus: 'error'
-      });
-    }
-
-    // 解析响应
-    const result = await response.json() as AudioSegmentResponse;
-    console.log('[HTTP /segment] 切分完成:', {
+    console.log('[HTTP /segment] 新逻辑处理完成:', {
       success: result.success,
-      segmentCount: result.segments?.length || 0
+      segmentCount: result.segments?.length || 0,
+      hasTranscriptionId: !!data.transcriptionId
     });
 
     return c.json(result);
     
   } catch (error) {
-    console.error('[HTTP /segment] 处理失败:', error);
+    console.error('[HTTP /segment] 新逻辑处理失败:', error);
     
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Request processing failed',
-      containerStatus: 'error'
+      note: '使用新的重构逻辑处理'
     });
   }
 });

@@ -40,6 +40,13 @@
     "GAP_THRESHOLD_MULTIPLIER": "3"      // 间隔检测倍数（小于3倍gap时直接合并）
   },
   
+  // D1 数据库绑定
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "waveshift-database",
+    "database_id": "005024c1-ef6e-4f7d-8b86-07995a53dc49"
+  }],
+  
   // R2 存储绑定
   "r2_buckets": [{
     "binding": "R2_BUCKET",
