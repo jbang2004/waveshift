@@ -13,13 +13,19 @@
     "max_instances": 3
   }],
   
-  // Durable Object 绑定
+  // Durable Object 绑定 - Container 需要对应的 DO 绑定
   "durable_objects": {
     "bindings": [{
       "name": "AUDIO_SEGMENT_CONTAINER",
       "class_name": "AudioSegmentContainer"
     }]
   },
+  
+  // 容器迁移配置
+  "migrations": [{
+    "tag": "v1",
+    "new_sqlite_classes": ["AudioSegmentContainer"]
+  }],
   
   // 环境变量
   "vars": {
@@ -38,12 +44,6 @@
   "r2_buckets": [{
     "binding": "R2_BUCKET",
     "bucket_name": "waveshift-media"
-  }],
-  
-  // 数据库迁移
-  "migrations": [{
-    "tag": "v1",
-    "new_sqlite_classes": ["AudioSegmentContainer"]
   }],
   
   // 日志观测配置
