@@ -115,13 +115,13 @@ async fn execute_ffmpeg_for_ranges(
     time_ranges: &[Vec<i32>],
     gap_duration_ms: i32,
 ) -> Result<Vec<u8>> {
-    // 创建临时输入文件
-    let mut input_file = NamedTempFile::new()?;
+    // 创建临时输入文件 (指定AAC扩展名帮助FFmpeg识别格式)
+    let mut input_file = NamedTempFile::with_suffix(".aac")?;
     input_file.write_all(audio_data)?;
     let input_path = input_file.path();
 
-    // 创建临时输出文件
-    let output_file = NamedTempFile::new()?;
+    // 创建临时输出文件 (指定WAV扩展名以便FFmpeg推断输出格式)
+    let output_file = NamedTempFile::with_suffix(".wav")?;
     let output_path = output_file.path();
 
     let result = if time_ranges.len() == 1 {
@@ -140,7 +140,8 @@ async fn execute_ffmpeg_for_ranges(
                 "-ss", &format!("{:.3}", start_sec),
                 "-i", input_path.to_str().unwrap(),
                 "-t", &format!("{:.3}", duration_sec),
-                "-c:a", "copy",
+                "-c:a", "pcm_s16le",  // 明确指定WAV编码格式
+                "-f", "wav",          // 明确指定输出格式
                 "-avoid_negative_ts", "make_zero",
                 output_path.to_str().unwrap(),
             ])
@@ -194,6 +195,8 @@ async fn execute_ffmpeg_for_ranges(
         ffmpeg_cmd
             .args(&["-filter_complex", &filter_complex])
             .args(&["-map", "[out]"])
+            .args(&["-c:a", "pcm_s16le"])  // 明确指定WAV编码格式
+            .args(&["-f", "wav"])          // 明确指定输出格式
             .arg(output_path.to_str().unwrap())
             .output()
             .await?
