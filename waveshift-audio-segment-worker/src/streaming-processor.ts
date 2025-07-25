@@ -317,40 +317,6 @@ export class AudioSegmenter {
                 `时长=${duration}ms`);
   }
 
-  // 🔧 移除不再需要的辅助方法，逻辑已内联到主流程
-
-  /**
-   * 检查片段是否符合最小时长要求
-   * 🔧 保留此方法用于向后兼容，但在新的延迟决策逻辑中已被finalizeAccumulator替代
-   */
-  shouldKeepSegment(accumulator: StreamingAccumulator): boolean {
-    const totalDuration = accumulator.getTotalDuration(this.gapDurationMs);
-    return totalDuration >= this.minDurationMs;
-  }
-
-  /**
-   * 生成句子到片段的映射关系
-   * 🔄 修复：考虑复用句子映射
-   */
-  generateSentenceToSegmentMap(accumulators: StreamingAccumulator[]): Record<number, string> {
-    const sentenceToSegmentMap: Record<number, string> = {};
-
-    for (const accumulator of accumulators) {
-      const segmentId = accumulator.generateSegmentId();
-      
-      // 映射待处理句子（需要生成音频的）
-      for (const sentence of accumulator.pendingSentences) {
-        sentenceToSegmentMap[sentence.sequence] = segmentId;
-      }
-      
-      // 🔄 映射复用句子（使用已生成的音频）
-      for (const sentence of accumulator.reusedSentences) {
-        sentenceToSegmentMap[sentence.sequence] = segmentId;
-      }
-    }
-
-    return sentenceToSegmentMap;
-  }
   
   /**
    * 🔧 新增：激活audioKey已生成的REUSING累积器（从StreamingProcessor调用）

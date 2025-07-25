@@ -1,23 +1,29 @@
-# WaveShift Audio Segment Worker
+# WaveShift Audio Segment Worker v4.0
 
-智能音频切分服务，基于转录数据和说话人信息进行音频片段提取，为语音合成提供参考音频。
+🎵 **流式实时音频切分服务** - 基于转录数据轮询D1数据库，实时生成智能音频片段。
 
-## 架构
+## 🎯 核心特性
 
-- **Worker**: TypeScript + Cloudflare Workers + Hono
-- **Container**: Python + FastAPI + pydub + ffmpeg
-- **存储**: Cloudflare R2 Object Storage
+- 🔄 **流式实时处理**: 轮询D1数据库，实时处理新转录句子
+- 🎯 **智能音频复用**: 跨批次状态保持，同说话人句子智能复用已生成音频
+- ⚡ **高性能切分**: 基于说话人、时长、间隔的三维决策算法
+- 💾 **实时数据库更新**: 自动更新transcription_segments表的audio_key字段
+- 🚀 **容器化处理**: Rust + FFmpeg 容器提供高性能音频处理
 
-## 功能特性
+## 🏗️ 流式架构
 
-- 🎯 **说话人分组**: 根据说话人和时间戳智能分组音频片段
-- 🔄 **智能合并**: 自动合并连续的同说话人片段
-- ⏱️ **时长控制**: 可配置目标时长和最小时长
-- 🎵 **音频处理**: 支持padding、淡入淡出、标准化
-- 📤 **并发处理**: 异步并行处理多个音频切片
-- 🔧 **容器化**: 基于Docker的可扩展架构
+```
+Workflow调用watch() → Worker轮询D1 → 增量处理新句子 → 
+智能音频切分与复用 → Rust Container处理 → R2存储 → 
+实时更新D1 audio_key → 返回处理统计
+```
 
-## 本地开发
+- **Worker**: TypeScript + Cloudflare Workers (业务逻辑 + 实时轮询)
+- **Container**: Rust + FFmpeg + Alpine Linux (音频处理)
+- **存储**: Cloudflare R2 + D1 Database
+- **算法**: 流式累积器 + 跨批次复用优化
+
+## 🛠️ 本地开发
 
 ### 1. 安装依赖
 
@@ -25,11 +31,10 @@
 npm install
 ```
 
-### 2. 启动容器服务
+### 2. 启动容器服务（需要Docker）
 
 ```bash
 # 构建并启动容器
-cd audio-segment-container
 docker build -t audio-segment-container .
 docker run -p 8080:8080 audio-segment-container
 ```
@@ -45,93 +50,174 @@ npm run dev
 
 ```bash
 curl http://localhost:8787/health
+# 返回: {"status":"healthy","service":"audio-segment-worker","version":"4.0"}
 ```
 
-## 部署
+## 🚀 部署
 
-### 设置环境变量
+### 推荐部署方式：GitHub Actions
 
 ```bash
-# R2存储配置
-wrangler secret put CLOUDFLARE_ACCOUNT_ID
-wrangler secret put R2_ACCESS_KEY_ID
-wrangler secret put R2_SECRET_ACCESS_KEY
-wrangler secret put R2_BUCKET_NAME
+# 触发Container自动部署
+gh workflow run "Deploy Audio Segment Worker (Container)"
+```
+
+### 本地部署
+
+```bash
+# 设置环境变量
 wrangler secret put R2_PUBLIC_DOMAIN
-```
+# 音频切分参数配置
+wrangler secret put GAP_DURATION_MS      # 句间静音时长，默认500ms
+wrangler secret put MAX_DURATION_MS      # 最大片段时长，默认12000ms
+wrangler secret put MIN_DURATION_MS      # 最小保留时长，默认1000ms
+wrangler secret put GAP_THRESHOLD_MULTIPLIER  # 间隔检测倍数，默认3
 
-### 部署到Cloudflare
-
-```bash
+# 部署
 npm run deploy
 ```
 
-## API 接口
+## 📡 API 接口
 
-### WorkerEntrypoint (Service Binding)
+### 🎯 Service Binding 调用（推荐）
 
 ```typescript
-// 在其他服务中调用
-const result = await env.AUDIO_SEGMENT_SERVICE.segment({
-  audioKey: 'audio/original.mp3',
-  transcripts: [...],
-  goalDurationMs: 10000,
-  minDurationMs: 3000,
-  paddingMs: 500,
-  outputPrefix: 'segments/task123'
+// 在workflow中调用流式监听API
+const result = await env.AUDIO_SEGMENT_SERVICE.watch({
+  audioKey: 'audio/extracted_audio.mp3',
+  transcriptionId: 'trans_12345',
+  outputPrefix: 'segments/task123',
+  taskId: 'optional-task-id'
 });
+
+console.log(`处理完成: 生成${result.segmentCount}个音频片段`);
+console.log(`统计: 轮询${result.stats.totalPolls}次，处理${result.stats.totalSentencesProcessed}个句子`);
 ```
 
-### HTTP API
+### 📊 返回数据结构
+
+```typescript
+interface WatchResponse {
+  success: boolean;
+  segmentCount?: number;                     // 生成的音频片段数量
+  sentenceToSegmentMap?: Record<number, string>; // sequence -> segment_id 映射
+  error?: string;
+  stats?: {
+    totalPolls: number;                      // 总轮询次数
+    totalSentencesProcessed: number;         // 处理的句子总数
+    totalDuration: number;                   // 总处理时长(ms)
+  };
+}
+```
+
+### 🔧 健康检查API
 
 ```bash
-# 音频切分
-POST /segment
-{
-  "audioKey": "audio/original.mp3",
-  "transcripts": [...],
-  "goalDurationMs": 10000,
-  "minDurationMs": 3000,
-  "paddingMs": 500,
-  "outputPrefix": "segments/task123"
-}
-
-# 健康检查
 GET /health
+# 返回: {
+#   "status": "healthy",
+#   "service": "audio-segment-worker", 
+#   "version": "4.0",
+#   "note": "Real-time streaming audio segmentation service"
+# }
 ```
 
-## 配置参数
+## ⚙️ 配置参数
 
-- `goalDurationMs`: 目标片段时长（毫秒），默认10秒
-- `minDurationMs`: 最小片段时长（毫秒），默认3秒  
-- `paddingMs`: 片段间的padding（毫秒），默认500ms
-- `outputPrefix`: 输出文件前缀，用于R2存储路径
+| 环境变量 | 说明 | 默认值 | 示例 |
+|---------|------|--------|------|
+| `GAP_DURATION_MS` | 句子间填充的静音时长 | 500ms | 静音间隔，确保播放连贯性 |
+| `MAX_DURATION_MS` | 单个音频片段最大时长 | 12000ms | 防止片段过长影响体验 |
+| `MIN_DURATION_MS` | 片段最小保留时长 | 1000ms | 过滤掉过短的孤立片段 |
+| `GAP_THRESHOLD_MULTIPLIER` | 间隔检测倍数 | 3 | 判断是否需要分割的阈值 |
+| `R2_PUBLIC_DOMAIN` | R2公共访问域名 | - | `pub-bucket.r2.dev` |
 
-## 切分算法
+## 🧠 智能切分算法
 
-1. **预处理**: 过滤出speech类型的转录片段
-2. **分组**: 根据说话人和序列连续性进行分组
-3. **时长控制**: 根据目标时长截取或合并片段
-4. **重叠处理**: 合并重叠的音频时间段
-5. **音频处理**: 添加padding、淡入淡出、标准化
-6. **存储**: 上传到R2并返回访问路径
+### 流式处理三阶段：
 
-## 故障排除
+1. **🔄 说话人切换检查**
+   - 检测说话人变化，自动结束当前累积器
+   - 跨批次复用：恢复同说话人的活跃累积器
 
-### 容器启动失败
+2. **📊 智能句子累积**
+   - **累积模式**: 新句子智能合并到当前片段
+   - **复用模式**: 达到MAX时长后，后续句子直接复用已生成音频
 
-- 检查Docker是否正常运行
-- 确保端口8080未被占用
-- 查看容器日志: `docker logs <container_id>`
+3. **⏱️ 时长决策与复用激活**
+   - **MAX检查**: 达到最大时长立即处理，转为复用模式
+   - **MIN检查**: 说话人切换时过滤过短片段
+   - **跨批次状态保持**: 活跃累积器跨批次复用
 
-### 音频处理失败
+### 音频复用优化：
 
-- 检查音频文件格式是否支持
-- 确保R2存储权限配置正确
-- 查看Worker日志: `wrangler tail`
+```
+说话人A: 句子1-3 → 生成audio_001.wav (12秒)
+说话人A: 句子4-6 → 直接复用audio_001.wav ✅
+说话人B: 句子7-9 → 生成audio_007.wav (11秒)  
+说话人A: 句子10  → 继续复用audio_001.wav ✅
+```
 
-### 内存不足
+**🎯 效果**: 大幅减少Container调用和R2存储操作，提升性能
 
-- 考虑增加Container实例类型
-- 优化音频文件大小
-- 调整切片参数减少内存使用
+## 📁 文件结构
+
+```
+waveshift-audio-segment-worker/
+├── src/
+│   ├── index.ts                  # Worker入口点，Service Binding接口
+│   ├── streaming-processor-v2.ts # 流式处理器，实时D1更新
+│   ├── streaming-processor.ts    # 核心算法：AudioSegmenter, StreamingAccumulator
+│   ├── container.ts             # Durable Object Container配置
+│   └── types.ts                 # 类型定义
+├── audio-segment-container/      # Rust音频处理容器
+│   ├── src/main.rs              # Rust FFmpeg服务器
+│   └── Cargo.toml
+├── Dockerfile                   # Alpine + Rust + FFmpeg镜像
+└── wrangler.jsonc              # Cloudflare配置
+```
+
+## 🚨 故障排除
+
+### Container启动问题
+
+```bash
+# 检查Container日志
+wrangler tail waveshift-audio-segment-worker --format pretty
+
+# 手动触发Container部署
+gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=true
+```
+
+### 轮询处理问题
+
+```bash
+# 检查D1数据库状态
+wrangler d1 execute waveshift-database --command "
+  SELECT COUNT(*) as total, 
+         COUNT(audio_key) as with_audio 
+  FROM transcription_segments 
+  WHERE transcription_id = 'your-transcription-id'"
+
+# 查看处理日志
+curl https://your-worker.workers.dev/health
+```
+
+### 性能优化建议
+
+- **音频复用率**: 同说话人连续句子应有90%+复用率
+- **轮询效率**: 动态间隔调整（有数据2秒，无数据5秒）
+- **批量操作**: D1更新按audioKey分组，减少SQL调用
+- **Container优化**: 使用Alpine镜像，启动时间<3秒
+
+## 📈 监控指标
+
+- `segmentCount`: 生成的音频片段数量
+- `totalPolls`: 轮询次数（反映处理效率）  
+- `totalSentencesProcessed`: 处理的句子数量
+- `totalDuration`: 总处理时长
+- `音频复用率`: reused/(pending+reused)
+
+---
+
+🎵 **v4.0 - 纯流式实时处理架构** | 智能复用 | 高性能 | 生产就绪

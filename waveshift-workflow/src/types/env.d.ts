@@ -16,42 +16,9 @@ interface FFmpegService {
 	}>;
 }
 
-// Audio Segment Service Binding 接口 (WorkerEntrypoint)
+// Audio Segment Service Binding 接口 (WorkerEntrypoint) - 流式实时处理
 interface AudioSegmentService {
-	segment(params: {
-		audioKey: string;
-		transcripts: Array<{
-			sequence: number;
-			startMs: number;     // 毫秒时间戳
-			endMs: number;       // 毫秒时间戳
-			speaker: string;
-			original: string;
-			translation?: string;
-			content_type: string;
-		}>;
-		outputPrefix: string;
-		transcriptionId?: string;  // 用于D1更新
-		// 注意：切分参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
-	}): Promise<{
-		success: boolean;
-		segments?: Array<{
-			segmentId: string;
-			audioKey: string;
-			speaker: string;
-			startMs: number;
-			endMs: number;
-			durationMs: number;
-			sentences: Array<{
-				sequence: number;
-				original: string;
-				translation?: string;
-			}>;
-		}>;
-		sentenceToSegmentMap?: Record<number, string>;
-		error?: string;
-	}>;
-	
-	// 新增watch方法 - 轮询D1并实时处理
+	// 流式监听方法 - 轮询D1并实时处理音频切分
 	watch(params: {
 		audioKey: string;
 		transcriptionId: string;

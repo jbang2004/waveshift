@@ -1,12 +1,3 @@
-export interface AudioSegmentRequest {
-  audioKey: string;             // R2 中的音频文件 key
-  transcripts: TranscriptItem[]; // 转录数据
-  outputPrefix: string;         // 输出文件前缀
-  transcriptionId?: string;     // D1 转录记录 ID（可选，用于更新 audio_key）
-  // 注意：切分参数现在通过环境变量配置：
-  // GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
-}
-
 export interface TranscriptItem {
   sequence: number;
   startMs: number;              // 开始时间（毫秒）
@@ -15,29 +6,6 @@ export interface TranscriptItem {
   original: string;
   translation?: string;
   content_type: 'speech' | 'non-speech';
-}
-
-export interface AudioSegmentResponse {
-  success: boolean;
-  segments?: AudioSegment[];
-  sentenceToSegmentMap?: Record<number, string>; // sequence -> segment_id
-  error?: string;
-  note?: string;                    // 可选的说明信息
-  containerStatus?: string;         // 容器状态信息
-}
-
-export interface AudioSegment {
-  segmentId: string;            // 片段ID
-  audioKey: string;             // R2 中的音频文件 key
-  speaker: string;
-  startMs: number;
-  endMs: number;
-  durationMs: number;
-  sentences: {
-    sequence: number;
-    original: string;
-    translation?: string;
-  }[];
 }
 
 export interface Env {
