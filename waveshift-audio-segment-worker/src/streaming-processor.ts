@@ -173,7 +173,7 @@ export class AudioSegmenter {
 
   /**
    * 流式处理转录数据，生成音频切分计划
-   * 返回需要处理的累积器列表
+   * 🔧 重构：延迟决策 + 三状态管理，避免重复推入和过早丢弃
    */
   processTranscriptsStreaming(transcripts: TranscriptItem[]): StreamingAccumulator[] {
     const accumulators: StreamingAccumulator[] = [];
@@ -187,17 +187,16 @@ export class AudioSegmenter {
     console.log(`🎬 开始流式处理 ${validSentences.length} 个语音句子`);
 
     for (const sentence of validSentences) {
-      // 检查是否需要发射当前累积器
-      const decision = SegmentationDecision.shouldBreakAccumulation(currentAccumulator, sentence);
-
-      if (decision.shouldBreak) {
-        if (currentAccumulator) {
-          accumulators.push(currentAccumulator);
-        }
+      // 检查是否需要切换累积器（说话人变化）
+      const shouldSwitch = this.shouldSwitchAccumulator(currentAccumulator, sentence);
+      
+      if (shouldSwitch && currentAccumulator) {
+        // 🔧 延迟决策：在切换前，根据时长决定如何处理当前累积器
+        this.finalizeAccumulator(currentAccumulator, accumulators);
         currentAccumulator = null;
       }
 
-      // 添加当前句子到累积器
+      // 创建或更新累积器
       if (!currentAccumulator) {
         currentAccumulator = new StreamingAccumulator(sentence);
       } else {
@@ -211,35 +210,24 @@ export class AudioSegmenter {
         }
       }
 
-      // 检查是否满载并需要处理
-      if (this.isAccumulatorFull(currentAccumulator)) {
-        // 🔄 关键修复：满载时推入列表供Worker处理
+      // 检查是否达到MAX（需要立即处理但继续复用）
+      if (this.shouldProcessForMax(currentAccumulator)) {
+        // 🔧 只推入一次：达到MAX时立即处理
         accumulators.push(currentAccumulator);
+        currentAccumulator.isAudioGenerated = true;
         
-        console.log(`🎯 累积器满载，加入处理队列: segment_id=${currentAccumulator.generateSegmentId()}, ` +
+        console.log(`🎯 累积器达到MAX，加入处理队列: segment_id=${currentAccumulator.generateSegmentId()}, ` +
                     `duration=${currentAccumulator.getTotalDuration(this.gapDurationMs)}ms, ` +
                     `sentences=${currentAccumulator.pendingSentences.length}`);
         
-        // 🔥 关键修复：标记为已生成（但不设置audioKey，将在真正处理时设置）
-        // 这样后续同说话人句子将直接复用
-        currentAccumulator.isAudioGenerated = true;
-        
-        // 保持currentAccumulator引用，支持后续同说话人句子复用
+        // 🔥 关键：保持currentAccumulator引用，支持后续同说话人句子复用
         // 不重置currentAccumulator = null
       }
     }
 
     // 处理最后的累积器
     if (currentAccumulator) {
-      // 🔄 修复：检查是否有待处理句子或复用句子
-      if (currentAccumulator.pendingSentences.length > 0 || currentAccumulator.reusedSentences.length > 0) {
-        // 如果只有复用句子，确保已标记音频生成
-        if (currentAccumulator.pendingSentences.length === 0 && currentAccumulator.reusedSentences.length > 0) {
-          console.log(`🔄 最后的累积器只包含复用句子: segment_id=${currentAccumulator.generateSegmentId()}, ` +
-                      `复用句子数=${currentAccumulator.reusedSentences.length}`);
-        }
-        accumulators.push(currentAccumulator);
-      }
+      this.finalizeAccumulator(currentAccumulator, accumulators);
     }
 
     console.log(`✅ 流式处理完成，生成 ${accumulators.length} 个音频片段计划`);
@@ -247,42 +235,64 @@ export class AudioSegmenter {
   }
 
   /**
-   * 检查累积器是否满载且需要处理
-   * 🔧 修复：考虑音频复用状态
+   * 🔧 新增：延迟决策 - 根据时长决定累积器的最终命运
    */
-  private isAccumulatorFull(accumulator: StreamingAccumulator | null): boolean {
-    if (!accumulator || accumulator.state !== AccumulatorState.ACCUMULATING) {
+  private finalizeAccumulator(
+    accumulator: StreamingAccumulator, 
+    accumulators: StreamingAccumulator[]
+  ): void {
+    const duration = accumulator.getTotalDuration(this.gapDurationMs);
+    
+    if (duration < this.minDurationMs) {
+      // < MIN: 丢弃，不推入accumulators
+      console.log(`🗑️ 丢弃过短片段: ${accumulator.generateSegmentId()}, ` +
+                  `时长=${duration}ms < 最小时长=${this.minDurationMs}ms`);
+      return;
+    }
+    
+    // ≥ MIN: 满足最小时长要求
+    if (!accumulator.isAudioGenerated) {
+      // 还没被处理过（未达到MAX），推入队列处理
+      accumulators.push(accumulator);
+      console.log(`✅ 累积器满足最小时长，加入处理队列: ${accumulator.generateSegmentId()}, ` +
+                  `时长=${duration}ms`);
+    }
+    // 如果已经处理过了（达到过MAX），就不需要再推入
+  }
+
+  /**
+   * 🔧 新增：检查是否达到MAX需要立即处理
+   */
+  private shouldProcessForMax(accumulator: StreamingAccumulator | null): boolean {
+    if (!accumulator || accumulator.isAudioGenerated) {
       return false;
     }
+    
+    return accumulator.getTotalDuration(this.gapDurationMs) >= this.maxDurationMs;
+  }
 
-    // 如果已生成音频，可以继续复用，不需要重新处理
-    if (accumulator.isAudioGenerated) {
+  /**
+   * 🔧 新增：检查是否需要切换累积器（说话人变化）
+   */
+  private shouldSwitchAccumulator(
+    accumulator: StreamingAccumulator | null, 
+    sentence: TranscriptItem
+  ): boolean {
+    if (!accumulator) {
       return false;
     }
-
-    // 如果未达到最大时长，继续累积
-    if (accumulator.getTotalDuration(this.gapDurationMs) < this.maxDurationMs) {
-      return false;
-    }
-
-    // 达到最大时长且未生成音频，需要处理
-    return true;
+    
+    // 说话人变化时切换
+    return sentence.speaker !== accumulator.speaker;
   }
 
   /**
    * 检查片段是否符合最小时长要求
+   * 🔧 保留此方法用于向后兼容，但在新的延迟决策逻辑中已被finalizeAccumulator替代
    */
   shouldKeepSegment(accumulator: StreamingAccumulator): boolean {
     const totalDuration = accumulator.getTotalDuration(this.gapDurationMs);
-    
-    // 如果只有一个句子且时长过短，丢弃
-    if (accumulator.pendingSentences.length === 1 && totalDuration < this.minDurationMs) {
-      console.warn(`🗑️ 丢弃过短单句片段: speaker=${accumulator.speaker}, ` +
-                   `计算时长=${totalDuration}ms < 最小时长=${this.minDurationMs}ms`);
-      return false;
-    }
-
-    return true;
+    return totalDuration >= this.minDurationMs;
   }
 
   /**

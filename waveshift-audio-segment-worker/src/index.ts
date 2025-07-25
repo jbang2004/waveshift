@@ -406,14 +406,12 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
           continue;
         }
         
-        // 检查是否符合最小时长要求
-        if (!segmenter.shouldKeepSegment(accumulator)) {
-          console.log(`🗑️ 跳过过短片段: ${accumulator.generateSegmentId()}, ` +
-                      `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms < 最小时长=${segmentConfig.minDurationMs}ms`);
-          continue;
-        }
+        // 🔧 移除重复检查：时长决策已在processTranscriptsStreaming的finalizeAccumulator中处理
+        // 进入这里的accumulators都是已经通过时长检查的有效累积器
+        console.log(`🎵 处理有效累积器: ${accumulator.generateSegmentId()}, ` +
+                    `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms`);
         
-        // Container 处理音频（只处理pendingSentences）
+        // 🎵 Container 处理音频（只处理pendingSentences）
         const segment = await this.processAccumulatorWithContainer(
           accumulator, 
           audioData, 
