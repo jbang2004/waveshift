@@ -28,6 +28,7 @@ export class StreamingAccumulator {
   public state: AccumulatorState;
   public generatedAudioKey?: string;          // 生成的音频文件路径
   public reusedSentences: TranscriptItem[];   // 复用音频的句子列表
+  public isInProcessingQueue: boolean;        // 🔧 新增：防止重复推入accumulators数组
 
   constructor(firstSentence: TranscriptItem) {
     this.speaker = firstSentence.speaker;
@@ -36,6 +37,7 @@ export class StreamingAccumulator {
     this.sequenceStart = firstSentence.sequence;
     this.state = AccumulatorState.ACCUMULATING;
     this.reusedSentences = [];
+    this.isInProcessingQueue = false;
   }
 
   /**
@@ -165,6 +167,9 @@ export class AudioSegmenter {
   private maxDurationMs: number;
   private minDurationMs: number;
   private gapThresholdMs: number;
+  
+  // 🔧 新增：跨批次状态保持 - 每个说话人的活跃复用累积器
+  private activeSpeakerAccumulators: Map<string, StreamingAccumulator> = new Map();
 
   constructor(config: AudioSegmentConfig) {
     this.gapDurationMs = config.gapDurationMs;
@@ -179,7 +184,7 @@ export class AudioSegmenter {
 
   /**
    * 流式处理转录数据，生成音频切分计划
-   * 🔧 第一性原理重构：极简的三阶段逻辑
+   * 🔧 第一性原理重构：极简的三阶段逻辑 + 跨批次复用
    */
   processTranscriptsStreaming(transcripts: TranscriptItem[]): StreamingAccumulator[] {
     const accumulators: StreamingAccumulator[] = [];
@@ -191,16 +196,44 @@ export class AudioSegmenter {
     );
 
     console.log(`🎬 开始流式处理 ${validSentences.length} 个语音句子`);
+    
+    // 🔧 关键改进：检查跨批次复用机会
+    if (validSentences.length > 0) {
+      const firstSpeaker = validSentences[0].speaker;
+      if (this.activeSpeakerAccumulators.has(firstSpeaker)) {
+        currentAccumulator = this.activeSpeakerAccumulators.get(firstSpeaker)!;
+        // 🔧 重要：重置处理标志，允许跨批次复用累积器被重新处理
+        currentAccumulator.isInProcessingQueue = false;
+        console.log(`🔄 恢复跨批次复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
+                    `speaker=${currentAccumulator.speaker}, ` +
+                    `状态=${currentAccumulator.state}, ` +
+                    `已有audioKey=${!!currentAccumulator.generatedAudioKey}, ` +
+                    `重置处理标志`);
+      }
+    }
 
     for (const sentence of validSentences) {
       // 🎯 阶段1：说话人切换检查
       if (currentAccumulator && !currentAccumulator.belongsToSpeaker(sentence.speaker)) {
         // 说话人切换，结束当前累积
         if (currentAccumulator.state === AccumulatorState.ACCUMULATING) {
-          // 只有累积中的才需要判断MIN
+          // 累积中的需要MIN检查
           this.finalizeAccumulator(currentAccumulator, accumulators);
+        } else if (currentAccumulator.state === AccumulatorState.REUSING && 
+                   currentAccumulator.reusedSentences.length > 0 &&
+                   !currentAccumulator.isInProcessingQueue) {
+          // 🔧 关键修复：REUSING状态且有复用句子的也需要处理
+          accumulators.push(currentAccumulator);
+          console.log(`🔄 说话人切换时处理复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
+                      `复用句子数=${currentAccumulator.reusedSentences.length}, ` +
+                      `${currentAccumulator.speaker} → ${sentence.speaker}`);
         }
-        // 复用中的不需要再处理（已经在accumulators中）
+        
+        // 🔧 移除说话人切换时的活跃累积器
+        if (this.activeSpeakerAccumulators.has(currentAccumulator.speaker)) {
+          this.activeSpeakerAccumulators.delete(currentAccumulator.speaker);
+          console.log(`🔄 说话人切换，移除活跃累积器: ${currentAccumulator.speaker} → ${sentence.speaker}`);
+        }
         currentAccumulator = null;
       }
 
@@ -222,6 +255,7 @@ export class AudioSegmenter {
         
         // 达到MAX，立即处理
         accumulators.push(currentAccumulator);
+        currentAccumulator.isInProcessingQueue = true; // 🔧 标记已推入
         
         console.log(`🎯 累积器达到MAX，加入处理队列: segment_id=${currentAccumulator.generateSegmentId()}, ` +
                     `duration=${currentAccumulator.getTotalDuration(this.gapDurationMs)}ms, ` +
@@ -230,13 +264,32 @@ export class AudioSegmenter {
         // 🔥 关键：转为复用模式（实际audioKey将在处理时设置）
         currentAccumulator.state = AccumulatorState.REUSING;
         console.log(`🔄 转为复用模式: speaker=${currentAccumulator.speaker}`);
+        
+        // 🔧 关键修复：立即保存REUSING状态累积器，避免后续丢失
+        this.activeSpeakerAccumulators.set(currentAccumulator.speaker, currentAccumulator);
+        console.log(`🔄 立即保存活跃复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
+                    `speaker=${currentAccumulator.speaker}, ` +
+                    `等待audioKey生成后完整激活`);
       }
     }
 
     // 处理最后的累积器
-    if (currentAccumulator && currentAccumulator.state === AccumulatorState.ACCUMULATING) {
-      this.finalizeAccumulator(currentAccumulator, accumulators);
+    if (currentAccumulator) {
+      if (currentAccumulator.state === AccumulatorState.ACCUMULATING) {
+        // 累积中的需要MIN检查
+        this.finalizeAccumulator(currentAccumulator, accumulators);
+      } else if (currentAccumulator.state === AccumulatorState.REUSING && 
+                 currentAccumulator.reusedSentences.length > 0 &&
+                 !currentAccumulator.isInProcessingQueue) {
+        // 🔧 关键修复：REUSING状态且有复用句子且未推入时，需要处理
+        accumulators.push(currentAccumulator);
+        console.log(`🔄 添加最终复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
+                    `复用句子数=${currentAccumulator.reusedSentences.length}`);
+      }
     }
+    
+    // 🔧 移除错误的方法结束时状态更新逻辑
+    // 状态保存已在MAX检查时立即执行，避免currentAccumulator指向错误
 
     console.log(`✅ 流式处理完成，生成 ${accumulators.length} 个音频片段计划`);
     return accumulators;
@@ -297,5 +350,21 @@ export class AudioSegmenter {
     }
 
     return sentenceToSegmentMap;
+  }
+  
+  /**
+   * 🔧 新增：激活audioKey已生成的REUSING累积器（从StreamingProcessor调用）
+   * 在音频生成完成后，更新活跃累积器的audioKey，完全激活复用功能
+   */
+  activateGeneratedAccumulator(speaker: string, audioKey: string): void {
+    const accumulator = this.activeSpeakerAccumulators.get(speaker);
+    if (accumulator && accumulator.state === AccumulatorState.REUSING) {
+      accumulator.generatedAudioKey = audioKey;
+      console.log(`🔄 激活复用累积器: ${accumulator.generateSegmentId()}, ` +
+                  `speaker=${speaker}, ` +
+                  `audioKey=${audioKey}`);
+    }
+    
+    console.log(`📊 当前活跃复用累积器数量: ${this.activeSpeakerAccumulators.size}`);
   }
 }

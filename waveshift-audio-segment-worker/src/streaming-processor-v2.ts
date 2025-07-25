@@ -31,6 +31,8 @@ export interface ProcessResponse {
  */
 export class StreamingProcessor {
   private db: D1Database;  // D1数据库实例
+  private segmenter?: AudioSegmenter;  // 🔧 新增：懒加载音频切分器实例
+  private segmentConfig?: AudioSegmentConfig;  // 🔧 新增：缓存配置，避免重复计算
   
   constructor(
     private container: DurableObjectNamespace,
@@ -43,23 +45,30 @@ export class StreamingProcessor {
   
   /**
    * 处理转录数据，生成音频片段并实时更新D1
-   * 🔄 修复：使用累积器内部复用逻辑，移除Worker层面复用映射
-   * 🔧 新增：支持快照处理机制，分离处理和复用状态
+   * 🔧 关键改进：懒加载AudioSegmenter实例，实现跨批次状态保持
+   * ✅ 解决跨批次复用问题：同一说话人后续批次直接复用已生成音频
    */
   async processTranscripts(request: ProcessRequest): Promise<ProcessResponse> {
     console.log(`🎯 StreamingProcessor开始处理: ${request.transcripts.length}个句子`);
     
     try {
-      // 1. 创建音频切分器
-      const segmentConfig: AudioSegmentConfig = {
-        gapDurationMs: parseInt(this.env.GAP_DURATION_MS || '500'),
-        maxDurationMs: parseInt(this.env.MAX_DURATION_MS || '12000'),
-        minDurationMs: parseInt(this.env.MIN_DURATION_MS || '1000'),
-        gapThresholdMultiplier: parseInt(this.env.GAP_THRESHOLD_MULTIPLIER || '3')
-      };
+      // 1. 🔧 懒加载配置和音频切分器（首次创建，后续复用）
+      if (!this.segmentConfig) {
+        this.segmentConfig = {
+          gapDurationMs: parseInt(this.env.GAP_DURATION_MS || '500'),
+          maxDurationMs: parseInt(this.env.MAX_DURATION_MS || '12000'),
+          minDurationMs: parseInt(this.env.MIN_DURATION_MS || '1000'),
+          gapThresholdMultiplier: parseInt(this.env.GAP_THRESHOLD_MULTIPLIER || '3')
+        };
+        console.log(`🔧 缓存音频配置: Gap:${this.segmentConfig.gapDurationMs}ms, Max:${this.segmentConfig.maxDurationMs}ms`);
+      }
       
-      const segmenter = new AudioSegmenter(segmentConfig);
-      const accumulators = segmenter.processTranscriptsStreaming(request.transcripts);
+      if (!this.segmenter) {
+        this.segmenter = new AudioSegmenter(this.segmentConfig);
+        console.log(`🔧 创建音频切分器实例，跨批次状态保持启用`);
+      }
+      
+      const accumulators = this.segmenter.processTranscriptsStreaming(request.transcripts);
       
       if (accumulators.length === 0) {
         console.log(`📭 没有需要处理的累积器`);
@@ -74,16 +83,22 @@ export class StreamingProcessor {
         // 🔧 移除重复检查：时长决策已在processTranscriptsStreaming的finalizeAccumulator中处理
         // 进入这里的accumulators都是已经通过时长检查的有效累积器
         console.log(`🎵 处理累积器: ${accumulator.generateSegmentId()}, ` +
-                    `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms`);
+                    `时长=${accumulator.getTotalDuration(this.segmentConfig.gapDurationMs)}ms`);
         
         // 🔄 处理纯复用累积器：只包含复用句子，无需生成新音频
         if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
-          console.log(`🔄 [V2] 处理复用累积器: ${accumulator.generateSegmentId()}, ` +
+          console.log(`🔄 [V2] 处理纯复用累积器: ${accumulator.generateSegmentId()}, ` +
                       `复用句子数=${accumulator.reusedSentences.length}, ` +
                       `复用audio_key=${accumulator.generatedAudioKey}`);
           
-          // 🔧 新逻辑：直接更新D1中的复用句子
-          if (request.transcriptionId && accumulator.generatedAudioKey) {
+          // 🔧 重要：纯复用累积器必须已有audioKey
+          if (!accumulator.generatedAudioKey) {
+            console.error(`❌ 纯复用累积器缺少audioKey: ${accumulator.generateSegmentId()}`);
+            continue;
+          }
+          
+          // 直接更新D1中的复用句子
+          if (request.transcriptionId) {
             await this.updateSentencesAudioKey(
               request.transcriptionId,
               accumulator.reusedSentences,
@@ -107,7 +122,7 @@ export class StreamingProcessor {
             request.audioData,
             request.outputPrefix,
             request.transcriptionId!,
-            segmentConfig.gapDurationMs
+            this.segmentConfig.gapDurationMs
           );
           
           if (segment) {
@@ -200,8 +215,10 @@ export class StreamingProcessor {
       console.log(`💾 D1更新完成: ${accumulator.pendingSentences.length}个句子 → ${fullAudioUrl}`);
       
       // 4. 标记音频已生成（使用完整URL）
-      // 🔧 重要：这会将状态转为REUSING
       accumulator.markAudioGenerated(fullAudioUrl);
+      
+      // 🔧 关键修复：激活AudioSegmenter中对应的活跃累积器
+      this.segmenter!.activateGeneratedAccumulator(accumulator.speaker, fullAudioUrl);
       
       // 🔧 关键修复：同时处理复用句子的D1更新
       if (accumulator.reusedSentences.length > 0) {
