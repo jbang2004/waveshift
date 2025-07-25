@@ -73,11 +73,11 @@ export class StreamingAccumulator {
 
   /**
    * 检查是否可以复用已生成的音频
+   * 🔧 简化：只要累积器已满载处理过，后续同说话人句子都应复用
    */
   canReuseAudio(): boolean {
     return this.state === AccumulatorState.ACCUMULATING && 
-           this.isAudioGenerated && 
-           this.generatedAudioKey !== undefined;
+           this.isAudioGenerated;
   }
 
   /**
@@ -220,9 +220,9 @@ export class AudioSegmenter {
                     `duration=${currentAccumulator.getTotalDuration(this.gapDurationMs)}ms, ` +
                     `sentences=${currentAccumulator.pendingSentences.length}`);
         
-        // 🔥 关键：标记为已生成，后续同说话人句子将复用此音频
-        // 注意：实际音频文件将在Worker中生成，但这里预先标记以启用复用逻辑
-        currentAccumulator.markAudioGenerated(currentAccumulator.generateAudioKey(''));
+        // 🔥 关键修复：标记为已生成（但不设置audioKey，将在真正处理时设置）
+        // 这样后续同说话人句子将直接复用
+        currentAccumulator.isAudioGenerated = true;
         
         // 保持currentAccumulator引用，支持后续同说话人句子复用
         // 不重置currentAccumulator = null

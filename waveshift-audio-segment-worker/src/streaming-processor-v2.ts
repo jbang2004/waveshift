@@ -82,16 +82,10 @@ export class StreamingProcessor {
           console.log(`🔄 [V2] 处理纯复用累积器: ${accumulator.generateSegmentId()}, ` +
                       `复用句子数=${accumulator.reusedSentences.length}`);
           
-          // 实时更新D1（复用句子使用已生成的音频key）
-          if (request.transcriptionId && accumulator.generatedAudioKey) {
-            await this.updateSentencesAudioKey(
-              request.transcriptionId,
-              accumulator.reusedSentences,
-              accumulator.generatedAudioKey
-            );
-          }
+          // 🔧 修复：纯复用累积器不应该单独存在，它应该与原始累积器合并处理
+          console.warn(`⚠️ 检测到纯复用累积器，这可能表示逻辑有误。应该与原始累积器一起处理。`);
           
-          // 更新句子映射（包含复用句子）
+          // 更新句子映射（包含复用句子） - 但不更新D1，因为这些句子应该在原始累积器中处理
           accumulator.reusedSentences.forEach(s => {
             sentenceToSegmentMap[s.sequence] = accumulator.generateSegmentId();
           });
@@ -118,9 +112,9 @@ export class StreamingProcessor {
               sentenceToSegmentMap[s.sequence] = segment.segmentId;
             });
             
-            // 🔄 也需要处理复用句子的映射
+            // 🔄 也需要处理复用句子的映射（在真正处理时已经处理过D1更新）
             if (accumulator.reusedSentences.length > 0) {
-              console.log(`🔄 [V2] 同时处理复用句子映射: ${accumulator.reusedSentences.length}个`);
+              console.log(`🔄 [V2] 映射复用句子: ${accumulator.reusedSentences.length}个`);
               accumulator.reusedSentences.forEach(s => {
                 sentenceToSegmentMap[s.sequence] = segment.segmentId;
               });
@@ -201,6 +195,16 @@ export class StreamingProcessor {
       
       // 4. 标记音频已生成（使用完整URL）
       accumulator.markAudioGenerated(fullAudioUrl);
+      
+      // 🔧 关键修复：同时处理复用句子的D1更新
+      if (accumulator.reusedSentences.length > 0) {
+        console.log(`🔄 [V2] 同时更新复用句子的audio_key: ${accumulator.reusedSentences.length}个句子`);
+        await this.updateSentencesAudioKey(
+          transcriptionId,
+          accumulator.reusedSentences,
+          fullAudioUrl
+        );
+      }
       
       // 5. 构建返回结果
       const segment: AudioSegment = {
