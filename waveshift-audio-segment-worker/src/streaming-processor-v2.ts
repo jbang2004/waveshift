@@ -44,6 +44,7 @@ export class StreamingProcessor {
   /**
    * 处理转录数据，生成音频片段并实时更新D1
    * 🔄 修复：使用累积器内部复用逻辑，移除Worker层面复用映射
+   * 🔧 新增：支持快照处理机制，分离处理和复用状态
    */
   async processTranscripts(request: ProcessRequest): Promise<ProcessResponse> {
     console.log(`🎯 StreamingProcessor开始处理: ${request.transcripts.length}个句子`);
@@ -77,13 +78,20 @@ export class StreamingProcessor {
         
         // 🔄 处理纯复用累积器：只包含复用句子，无需生成新音频
         if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
-          console.log(`🔄 [V2] 处理纯复用累积器: ${accumulator.generateSegmentId()}, ` +
-                      `复用句子数=${accumulator.reusedSentences.length}`);
+          console.log(`🔄 [V2] 处理复用累积器: ${accumulator.generateSegmentId()}, ` +
+                      `复用句子数=${accumulator.reusedSentences.length}, ` +
+                      `复用audio_key=${accumulator.generatedAudioKey}`);
           
-          // 🔧 重构后，纯复用累积器不应该单独出现，但保留容错处理
-          console.warn(`⚠️ 检测到纯复用累积器，新逻辑中这种情况应该很罕见`);
+          // 🔧 新逻辑：直接更新D1中的复用句子
+          if (request.transcriptionId && accumulator.generatedAudioKey) {
+            await this.updateSentencesAudioKey(
+              request.transcriptionId,
+              accumulator.reusedSentences,
+              accumulator.generatedAudioKey
+            );
+          }
           
-          // 更新句子映射（容错处理）
+          // 更新句子映射
           accumulator.reusedSentences.forEach(s => {
             sentenceToSegmentMap[s.sequence] = accumulator.generateSegmentId();
           });
@@ -192,6 +200,7 @@ export class StreamingProcessor {
       console.log(`💾 D1更新完成: ${accumulator.pendingSentences.length}个句子 → ${fullAudioUrl}`);
       
       // 4. 标记音频已生成（使用完整URL）
+      // 🔧 重要：这会将状态转为REUSING
       accumulator.markAudioGenerated(fullAudioUrl);
       
       // 🔧 关键修复：同时处理复用句子的D1更新

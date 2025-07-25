@@ -6,6 +6,7 @@ import { AudioSegmentContainer } from './container';
 import { 
   AudioSegmenter, 
   StreamingAccumulator, 
+  AccumulatorState,
   type AudioSegmentConfig 
 } from './streaming-processor';
 import { StreamingProcessor } from './streaming-processor-v2';
@@ -389,8 +390,9 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
       for (const accumulator of accumulators) {
         // 🔄 特殊处理：如果accumulator只包含复用句子，跳过音频生成
         if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
-          console.log(`🔄 跳过纯复用片段: ${accumulator.generateSegmentId()}, ` +
-                      `复用句子数=${accumulator.reusedSentences.length}`);
+          console.log(`🔄 处理复用累积器: ${accumulator.generateSegmentId()}, ` +
+                      `复用句子数=${accumulator.reusedSentences.length}, ` +
+                      `复用audio_key=${accumulator.generatedAudioKey}`);
           
           // 直接收集 D1 更新数据（使用已存在的音频key）
           if (accumulator.generatedAudioKey) {
@@ -406,10 +408,11 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
           continue;
         }
         
-        // 🔧 移除重复检查：时长决策已在processTranscriptsStreaming的finalizeAccumulator中处理
-        // 进入这里的accumulators都是已经通过时长检查的有效累积器
-        console.log(`🎵 处理有效累积器: ${accumulator.generateSegmentId()}, ` +
-                    `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms`);
+        // 🎵 处理带有待处理句子的累积器
+        console.log(`🎵 处理累积器: ${accumulator.generateSegmentId()}, ` +
+                    `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms, ` +
+                    `待处理句子=${accumulator.pendingSentences.length}, ` +
+                    `复用句子=${accumulator.reusedSentences.length}`);
         
         // 🎵 Container 处理音频（只处理pendingSentences）
         const segment = await this.processAccumulatorWithContainer(
@@ -453,6 +456,12 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
         
         // 🔧 更新segment返回的audioKey为完整URL
         segment.audioKey = fullAudioUrl;
+        
+        // 🔧 重要：如果累积器状态为REUSING，更新其audioKey以供后续复用
+        if (accumulator.state === AccumulatorState.REUSING) {
+          accumulator.generatedAudioKey = fullAudioUrl;
+          console.log(`🔄 更新REUSING累积器的audioKey: ${fullAudioUrl}`);
+        }
         
         // 移除 audioData 减少内存占用
         delete segment.audioData;
