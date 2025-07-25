@@ -87,6 +87,7 @@ export async function GET() {
           translation TEXT NOT NULL,
           is_first INTEGER NOT NULL DEFAULT 0,
           is_last INTEGER NOT NULL DEFAULT 0,
+          audio_key TEXT,
           FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
         );
       `).run();
@@ -106,6 +107,14 @@ export async function GET() {
 
       await env.DB.prepare(`
         CREATE INDEX IF NOT EXISTS idx_segments_lookup ON transcription_segments(transcription_id, sequence);
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_segments_polling ON transcription_segments(transcription_id, sequence);
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_segments_audio_update ON transcription_segments(transcription_id, sequence, audio_key);
       `).run();
 
       console.log('Created database tables successfully');

@@ -1,0 +1,295 @@
+import type { TranscriptItem, Env, AudioSegment } from './types';
+import { 
+  AudioSegmenter, 
+  StreamingAccumulator, 
+  type AudioSegmentConfig 
+} from './streaming-processor';
+
+/**
+ * 处理请求接口
+ */
+export interface ProcessRequest {
+  audioData: Uint8Array;
+  transcripts: TranscriptItem[];
+  outputPrefix: string;
+  transcriptionId?: string;  // 用于实时更新D1
+}
+
+/**
+ * 处理响应接口
+ */
+export interface ProcessResponse {
+  success: boolean;
+  segments?: AudioSegment[];
+  sentenceToSegmentMap?: Record<number, string>;
+  error?: string;
+}
+
+/**
+ * 流式音频处理器 - 支持实时D1更新
+ * 核心业务逻辑处理类，负责音频切分和实时数据库更新
+ */
+export class StreamingProcessor {
+  private db: D1Database;  // D1数据库实例
+  
+  constructor(
+    private container: DurableObjectNamespace,
+    private r2Bucket: R2Bucket,
+    private env: Env,
+    db: D1Database
+  ) {
+    this.db = db;
+  }
+  
+  /**
+   * 处理转录数据，生成音频片段并实时更新D1
+   * 🔄 修复：使用累积器内部复用逻辑，移除Worker层面复用映射
+   */
+  async processTranscripts(request: ProcessRequest): Promise<ProcessResponse> {
+    console.log(`🎯 StreamingProcessor开始处理: ${request.transcripts.length}个句子`);
+    
+    try {
+      // 1. 创建音频切分器
+      const segmentConfig: AudioSegmentConfig = {
+        gapDurationMs: parseInt(this.env.GAP_DURATION_MS || '500'),
+        maxDurationMs: parseInt(this.env.MAX_DURATION_MS || '12000'),
+        minDurationMs: parseInt(this.env.MIN_DURATION_MS || '1000'),
+        gapThresholdMultiplier: parseInt(this.env.GAP_THRESHOLD_MULTIPLIER || '3')
+      };
+      
+      const segmenter = new AudioSegmenter(segmentConfig);
+      const accumulators = segmenter.processTranscriptsStreaming(request.transcripts);
+      
+      if (accumulators.length === 0) {
+        console.log(`📭 没有需要处理的累积器`);
+        return { success: true, segments: [], sentenceToSegmentMap: {} };
+      }
+      
+      // 2. 处理每个累积器
+      const segments: AudioSegment[] = [];
+      const sentenceToSegmentMap: Record<number, string> = {};
+      
+      for (const accumulator of accumulators) {
+        // 🔧 修复：添加过短片段过滤逻辑，100%还原原始功能
+        if (!segmenter.shouldKeepSegment(accumulator)) {
+          console.log(`🗑️ 跳过过短片段: ${accumulator.generateSegmentId()}, ` +
+                      `时长=${accumulator.getTotalDuration(segmentConfig.gapDurationMs)}ms < 最小时长=${segmentConfig.minDurationMs}ms`);
+          continue;
+        }
+        
+        // 🔄 处理纯复用累积器：只包含复用句子，无需生成新音频
+        if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
+          console.log(`🔄 [V2] 处理纯复用累积器: ${accumulator.generateSegmentId()}, ` +
+                      `复用句子数=${accumulator.reusedSentences.length}`);
+          
+          // 实时更新D1（复用句子使用已生成的音频key）
+          if (request.transcriptionId && accumulator.generatedAudioKey) {
+            await this.updateSentencesAudioKey(
+              request.transcriptionId,
+              accumulator.reusedSentences,
+              accumulator.generatedAudioKey
+            );
+          }
+          
+          // 更新句子映射（包含复用句子）
+          accumulator.reusedSentences.forEach(s => {
+            sentenceToSegmentMap[s.sequence] = accumulator.generateSegmentId();
+          });
+          
+          continue;
+        }
+        
+        // 🔧 生成新音频：处理有待生成句子的累积器
+        if (accumulator.pendingSentences.length > 0) {
+          // 🔥 生成新音频：处理并实时更新
+          const segment = await this.processAndUploadSegment(
+            accumulator,
+            request.audioData,
+            request.outputPrefix,
+            request.transcriptionId!,
+            segmentConfig.gapDurationMs
+          );
+          
+          if (segment) {
+            segments.push(segment);
+            
+            // 更新句子映射（待处理句子）
+            accumulator.pendingSentences.forEach(s => {
+              sentenceToSegmentMap[s.sequence] = segment.segmentId;
+            });
+            
+            // 🔄 也需要处理复用句子的映射
+            if (accumulator.reusedSentences.length > 0) {
+              console.log(`🔄 [V2] 同时处理复用句子映射: ${accumulator.reusedSentences.length}个`);
+              accumulator.reusedSentences.forEach(s => {
+                sentenceToSegmentMap[s.sequence] = segment.segmentId;
+              });
+            }
+          }
+        }
+      }
+      
+      console.log(`✅ StreamingProcessor处理完成: 生成${segments.length}个音频片段`);
+      
+      return {
+        success: true,
+        segments,
+        sentenceToSegmentMap
+      };
+      
+    } catch (error) {
+      console.error(`❌ StreamingProcessor处理失败:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  
+  /**
+   * 处理并上传音频片段，同时实时更新D1
+   */
+  private async processAndUploadSegment(
+    accumulator: StreamingAccumulator,
+    audioData: Uint8Array,
+    outputPrefix: string,
+    transcriptionId: string,
+    gapDurationMs: number
+  ): Promise<AudioSegment | null> {
+    // 🔧 修复：参数验证
+    if (!outputPrefix || !outputPrefix.trim()) {
+      console.error(`❌ outputPrefix为空或无效: "${outputPrefix}"`);
+      return null;
+    }
+    
+    const segmentId = accumulator.generateSegmentId();
+    // 🔧 修复：使用统一的URL格式（包含speaker）
+    const relativeAudioKey = `${outputPrefix}/${segmentId}_${accumulator.speaker}.wav`;
+    
+    // 🔧 修复：生成完整的R2公共URL
+    const r2PublicDomain = this.env.R2_PUBLIC_DOMAIN;
+    const fullAudioUrl = r2PublicDomain 
+      ? `https://${r2PublicDomain}/${relativeAudioKey}`
+      : relativeAudioKey; // fallback to relative path
+    
+    try {
+      console.log(`🎵 生成音频片段: ${segmentId}`);
+      
+      // 1. 生成音频数据
+      const segmentData = await this.generateSegmentAudio(
+        accumulator,
+        audioData,
+        gapDurationMs
+      );
+      
+      // 2. 上传到R2（使用相对路径）
+      console.log(`📤 上传音频到R2: ${relativeAudioKey}`);
+      await this.r2Bucket.put(relativeAudioKey, segmentData, {
+        httpMetadata: {
+          contentType: 'audio/wav'
+        }
+      });
+      
+      // 3. 🔥 实时更新D1中相关句子的audio_key（使用完整URL）
+      await this.updateSentencesAudioKey(
+        transcriptionId,
+        accumulator.pendingSentences,
+        fullAudioUrl
+      );
+      
+      console.log(`💾 D1更新完成: ${accumulator.pendingSentences.length}个句子 → ${fullAudioUrl}`);
+      
+      // 4. 标记音频已生成（使用完整URL）
+      accumulator.markAudioGenerated(fullAudioUrl);
+      
+      // 5. 构建返回结果
+      const segment: AudioSegment = {
+        segmentId,
+        audioKey: fullAudioUrl, // 🔧 修复：返回完整URL
+        speaker: accumulator.speaker,
+        startMs: accumulator.timeRanges[0][0],
+        endMs: accumulator.timeRanges[accumulator.timeRanges.length - 1][1],
+        durationMs: accumulator.getTotalDuration(gapDurationMs),
+        sentences: accumulator.pendingSentences.map(s => ({
+          sequence: s.sequence,
+          original: s.original,
+          translation: s.translation
+        }))
+      };
+      
+      console.log(`✅ 音频片段处理完成: ${segmentId}, ` +
+                  `时长=${segment.durationMs}ms, ` +
+                  `句子数=${segment.sentences.length}`);
+      
+      return segment;
+      
+    } catch (error) {
+      console.error(`❌ 处理音频片段失败: ${segmentId}`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * 批量更新句子的audio_key - 实时更新
+   */
+  private async updateSentencesAudioKey(
+    transcriptionId: string,
+    sentences: Array<{sequence: number}>,
+    audioKey: string
+  ): Promise<void> {
+    if (sentences.length === 0) return;
+    
+    try {
+      // 使用事务批量更新
+      const statements = sentences.map(s => 
+        this.db.prepare(`
+          UPDATE transcription_segments 
+          SET audio_key = ?
+          WHERE transcription_id = ? AND sequence = ?
+        `).bind(audioKey, transcriptionId, s.sequence)
+      );
+      
+      await this.db.batch(statements);
+      
+      const sequences = sentences.map(s => s.sequence).join(',');
+      console.log(`💾 实时更新D1: audio_key="${audioKey}" → sequences=[${sequences}]`);
+      
+    } catch (error) {
+      console.error(`❌ 更新audio_key失败:`, error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 生成音频片段（调用Container）
+   */
+  private async generateSegmentAudio(
+    accumulator: StreamingAccumulator,
+    audioData: Uint8Array,
+    gapDurationMs: number
+  ): Promise<ArrayBuffer> {
+    const timeRanges = accumulator.timeRanges;
+    
+    // 获取Container实例
+    const containerId = this.container.idFromName('audio-segment');
+    const container = this.container.get(containerId);
+    
+    // 调用Container处理
+    const response = await container.fetch('https://audio-segment/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Time-Ranges': JSON.stringify(timeRanges),
+        'X-Gap-Duration': gapDurationMs.toString()
+      },
+      body: audioData
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Container处理失败: ${response.status} - ${error}`);
+    }
+    
+    return await response.arrayBuffer();
+  }
+}

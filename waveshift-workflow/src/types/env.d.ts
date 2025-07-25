@@ -30,6 +30,7 @@ interface AudioSegmentService {
 			content_type: string;
 		}>;
 		outputPrefix: string;
+		transcriptionId?: string;  // 用于D1更新
 		// 注意：切分参数现在通过环境变量配置：GAP_DURATION_MS, MAX_DURATION_MS, MIN_DURATION_MS
 	}): Promise<{
 		success: boolean;
@@ -48,6 +49,24 @@ interface AudioSegmentService {
 		}>;
 		sentenceToSegmentMap?: Record<number, string>;
 		error?: string;
+	}>;
+	
+	// 新增watch方法 - 轮询D1并实时处理
+	watch(params: {
+		audioKey: string;
+		transcriptionId: string;
+		outputPrefix: string;
+		taskId?: string;
+	}): Promise<{
+		success: boolean;
+		segmentCount?: number;
+		sentenceToSegmentMap?: Record<number, string>;
+		error?: string;
+		stats?: {
+			totalPolls: number;
+			totalSentencesProcessed: number;
+			totalDuration: number;
+		};
 	}>;
 }
 

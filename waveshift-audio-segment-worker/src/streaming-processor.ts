@@ -201,7 +201,7 @@ export class AudioSegmenter {
       if (!currentAccumulator) {
         currentAccumulator = new StreamingAccumulator(sentence);
       } else {
-        // 检查是否可以复用已生成的音频
+        // 🔄 检查是否可以复用已生成的音频
         if (currentAccumulator.canReuseAudio()) {
           // 🔄 实现音频复用逻辑：直接添加到复用列表，无需重新生成音频
           currentAccumulator.addReusedSentence(sentence);

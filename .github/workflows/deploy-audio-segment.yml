@@ -104,14 +104,8 @@ jobs:
           # 测试健康检查
           curl -f https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health || echo "Health check failed"
           
-          # 测试音频切分接口
-          curl -X POST https://waveshift-audio-segment-worker.jbang20042004.workers.dev/segment \
-            -H "Content-Type: application/json" \
-            -d '{
-              "audioKey": "test/sample.mp3",
-              "transcripts": [{"sequence": 1, "startMs": 0, "endMs": 3000, "speaker": "TestSpeaker", "original": "测试", "content_type": "speech"}],
-              "outputPrefix": "test/output"
-            }' || echo "Segment test failed"
+          # 🔧 移除测试音频调用，避免不必要的R2访问
+          echo "跳过音频切分接口测试（避免test/sample.mp3调用）"
 
       - name: Post-deployment verification
         if: success()
