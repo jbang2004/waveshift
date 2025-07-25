@@ -168,15 +168,24 @@ npm run deploy           # 构建容器并部署 Worker
 
 **🚀 关键优化实现**：
 - **删除批次结束MIN检查**: 批次边界不再强制音频生成，只保存累积器状态
-- **延迟决策机制**: 只有说话人切换或转录完全结束时才进行MIN检查和音频生成
+- **统一说话人切换逻辑**: 批次内和批次间使用相同的处理机制，消除边界情况
+- **预处理不兼容累积器**: 批次开始时主动清理所有与当前批次不匹配的累积器
 - **跨批次状态保持**: `activeSpeakerAccumulators` 映射维护说话人累积器的连续性
 - **转录结束强制处理**: `finalizeAllRemainingAccumulators()` 处理所有剩余累积器
 
 **🔧 核心代码逻辑**：
 ```typescript
+// ✅ 统一预处理：批次开始时清理不兼容累积器
+for (const [speaker, accumulator] of this.activeSpeakerAccumulators) {
+  if (speaker !== firstSpeaker) {
+    // 使用统一的说话人切换处理逻辑
+    this.finalizeAccumulator(accumulator, accumulators);
+    this.activeSpeakerAccumulators.delete(speaker);
+  }
+}
+
 // ✅ 批次结束：继续累积而非强制结束
 if (currentAccumulator.state === AccumulatorState.ACCUMULATING) {
-  // 保存到活跃映射，等待后续延续（不进行MIN检查）
   this.activeSpeakerAccumulators.set(currentAccumulator.speaker, currentAccumulator);
 }
 
@@ -188,9 +197,11 @@ finalizeAllRemainingAccumulators(): StreamingAccumulator[] {
 
 **📊 技术优势实现**：
 - ✅ **说话人隔离**: 严格防止跨不同说话人音频复用，确保音频连贯性
-- ✅ **批次连续性**: 完美解决同说话人跨批次的片段合并问题
+- ✅ **批次连续性**: 完美解决同说话人跨批次的片段合并问题  
+- ✅ **逻辑统一**: 批次内和批次间使用相同的说话人切换处理机制，消除边界情况
 - ✅ **智能复用**: 达到MAX的音频可被同说话人后续句子复用
 - ✅ **实时处理**: 流式D1轮询 + 跨批次状态保持 + 转录结束处理
+- ✅ **预防性处理**: 批次开始时主动清理不兼容状态，避免累积器被困问题
 
 ### Gemini 转录服务架构
 - **技术栈**: TypeScript + Cloudflare Workers + Google Gemini API

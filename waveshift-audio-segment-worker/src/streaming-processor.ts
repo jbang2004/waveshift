@@ -197,18 +197,50 @@ export class AudioSegmenter {
 
     console.log(`🎬 开始流式处理 ${validSentences.length} 个语音句子`);
     
-    // 🔧 关键改进：检查跨批次复用机会
+    // 🚀 统一逻辑：批次开始时预处理所有不兼容的累积器
     if (validSentences.length > 0) {
       const firstSpeaker = validSentences[0].speaker;
+      
+      // 1. 预处理：清理所有与当前批次不兼容的累积器
+      const incompatibleSpeakers: string[] = [];
+      for (const [speaker, accumulator] of this.activeSpeakerAccumulators) {
+        if (speaker !== firstSpeaker) {
+          incompatibleSpeakers.push(speaker);
+          
+          // 🔧 使用统一的说话人切换处理逻辑
+          if (accumulator.state === AccumulatorState.ACCUMULATING) {
+            this.finalizeAccumulator(accumulator, accumulators);
+            console.log(`🎯 预处理不兼容累积器: ${accumulator.generateSegmentId()}, ` +
+                        `speaker=${speaker} → firstSpeaker=${firstSpeaker}, ` +
+                        `时长=${accumulator.getTotalDuration(this.gapDurationMs)}ms`);
+          } else if (accumulator.state === AccumulatorState.REUSING && 
+                     accumulator.reusedSentences.length > 0 &&
+                     !accumulator.isInProcessingQueue) {
+            accumulators.push(accumulator);
+            console.log(`🔄 预处理不兼容复用累积器: ${accumulator.generateSegmentId()}, ` +
+                        `复用句子数=${accumulator.reusedSentences.length}, ` +
+                        `speaker=${speaker} → firstSpeaker=${firstSpeaker}`);
+          }
+        }
+      }
+      
+      // 2. 清理已处理的不兼容累积器
+      for (const speaker of incompatibleSpeakers) {
+        this.activeSpeakerAccumulators.delete(speaker);
+      }
+      
+      // 3. 恢复兼容的累积器（如果有的话）
       if (this.activeSpeakerAccumulators.has(firstSpeaker)) {
         currentAccumulator = this.activeSpeakerAccumulators.get(firstSpeaker)!;
-        // 🔧 重要：重置处理标志，允许跨批次复用累积器被重新处理
         currentAccumulator.isInProcessingQueue = false;
-        console.log(`🔄 恢复跨批次复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
-                    `speaker=${currentAccumulator.speaker}, ` +
+        console.log(`🔄 恢复兼容累积器: ${currentAccumulator.generateSegmentId()}, ` +
+                    `speaker=${firstSpeaker}, ` +
                     `状态=${currentAccumulator.state}, ` +
-                    `已有audioKey=${!!currentAccumulator.generatedAudioKey}, ` +
-                    `重置处理标志`);
+                    `已有audioKey=${!!currentAccumulator.generatedAudioKey}`);
+      }
+      
+      if (incompatibleSpeakers.length > 0) {
+        console.log(`✅ 预处理完成: 处理了${incompatibleSpeakers.length}个不兼容累积器 [${incompatibleSpeakers.join(', ')}]`);
       }
     }
 
