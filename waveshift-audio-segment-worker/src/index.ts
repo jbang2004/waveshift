@@ -264,7 +264,7 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
           // 4.5 检查是否遇到最后一个句子
           const hasLastSegment = newSegments.results.some((r: any) => r.is_last === 1);
           if (hasLastSegment) {
-            console.log(`🏁 检测到最后一个句子(is_last=1)，结束轮询`);
+            console.log(`🏁 检测到最后一个句子(is_last=1)，准备结束轮询`);
             break;
           }
         } else {
@@ -299,12 +299,37 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
         }
       }
       
+      // 🚀 5. 处理转录结束时的剩余累积器
+      console.log(`🎬 轮询结束，开始处理剩余累积器`);
+      try {
+        const finalResult = await processor.finalizeTranscription({
+          audioData: audioBytes,
+          outputPrefix: params.outputPrefix,
+          transcriptionId: params.transcriptionId
+        });
+        
+        if (finalResult.success && finalResult.segments && finalResult.segments.length > 0) {
+          // 更新统计
+          pollState.totalSegments += finalResult.segments.length;
+          Object.assign(pollState.allSentenceToSegmentMap, finalResult.sentenceToSegmentMap);
+          
+          console.log(`✅ 剩余累积器处理完成: 额外生成 ${finalResult.segments.length} 个音频片段`);
+        } else if (!finalResult.success) {
+          console.error(`❌ 剩余累积器处理失败: ${finalResult.error}`);
+        } else {
+          console.log(`📭 无剩余累积器需要处理`);
+        }
+      } catch (finalizeError) {
+        console.error(`❌ 剩余累积器处理异常:`, finalizeError);
+        // 不中断整个流程，只记录错误
+      }
+      
       const totalDuration = Date.now() - startTime;
       console.log(`✅ 音频切分监听完成:`);
       console.log(`  - 总耗时: ${totalDuration}ms`);
       console.log(`  - 轮询次数: ${pollState.totalPolls}`);
       console.log(`  - 处理句子数: ${pollState.totalSentencesProcessed}`);
-      console.log(`  - 生成音频片段: ${pollState.totalSegments}`);
+      console.log(`  - 生成音频片段: ${pollState.totalSegments} (含剩余处理)`);
       
       return {
         success: true,

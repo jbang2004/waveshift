@@ -273,15 +273,19 @@ export class AudioSegmenter {
       }
     }
 
-    // 处理最后的累积器
+    // 🔧 批次结束处理：继续累积而非强制结束
     if (currentAccumulator) {
       if (currentAccumulator.state === AccumulatorState.ACCUMULATING) {
-        // 累积中的需要MIN检查
-        this.finalizeAccumulator(currentAccumulator, accumulators);
+        // 🚀 关键优化：保存到活跃映射，等待后续延续（不进行MIN检查）
+        this.activeSpeakerAccumulators.set(currentAccumulator.speaker, currentAccumulator);
+        console.log(`🔄 批次结束，保存累积器等待延续: ${currentAccumulator.generateSegmentId()}, ` +
+                    `speaker=${currentAccumulator.speaker}, ` +
+                    `当前时长=${currentAccumulator.getTotalDuration(this.gapDurationMs)}ms, ` +
+                    `句子数=${currentAccumulator.pendingSentences.length}`);
       } else if (currentAccumulator.state === AccumulatorState.REUSING && 
                  currentAccumulator.reusedSentences.length > 0 &&
                  !currentAccumulator.isInProcessingQueue) {
-        // 🔧 关键修复：REUSING状态且有复用句子且未推入时，需要处理
+        // 🔧 REUSING状态且有复用句子且未推入时，需要处理
         accumulators.push(currentAccumulator);
         console.log(`🔄 添加最终复用累积器: ${currentAccumulator.generateSegmentId()}, ` +
                     `复用句子数=${currentAccumulator.reusedSentences.length}`);
@@ -332,5 +336,37 @@ export class AudioSegmenter {
     }
     
     console.log(`📊 当前活跃复用累积器数量: ${this.activeSpeakerAccumulators.size}`);
+  }
+
+  /**
+   * 🚀 新增：转录结束时强制处理所有剩余累积器
+   * 当整个转录流程完全结束时调用，处理所有未达到MAX但满足MIN的累积器
+   */
+  finalizeAllRemainingAccumulators(): StreamingAccumulator[] {
+    const finalAccumulators: StreamingAccumulator[] = [];
+    
+    console.log(`🎬 转录结束，强制处理剩余累积器: ${this.activeSpeakerAccumulators.size}个`);
+    
+    for (const [speaker, accumulator] of this.activeSpeakerAccumulators) {
+      if (accumulator.state === AccumulatorState.ACCUMULATING) {
+        // 使用finalizeAccumulator进行MIN检查
+        this.finalizeAccumulator(accumulator, finalAccumulators);
+        console.log(`🎯 强制处理累积器: ${accumulator.generateSegmentId()}, ` +
+                    `speaker=${speaker}, ` +
+                    `时长=${accumulator.getTotalDuration(this.gapDurationMs)}ms`);
+      } else if (accumulator.state === AccumulatorState.REUSING && 
+                 accumulator.reusedSentences.length > 0) {
+        // REUSING状态且有复用句子的也需要处理
+        finalAccumulators.push(accumulator);
+        console.log(`🔄 强制处理复用累积器: ${accumulator.generateSegmentId()}, ` +
+                    `复用句子数=${accumulator.reusedSentences.length}`);
+      }
+    }
+    
+    // 清空活跃累积器映射
+    this.activeSpeakerAccumulators.clear();
+    console.log(`✅ 转录结束处理完成，生成${finalAccumulators.length}个最终音频片段`);
+    
+    return finalAccumulators;
   }
 }

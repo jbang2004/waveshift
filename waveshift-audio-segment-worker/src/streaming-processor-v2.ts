@@ -320,4 +320,110 @@ export class StreamingProcessor {
     
     return await response.arrayBuffer();
   }
+
+  /**
+   * 🚀 新增：处理转录完全结束时的剩余累积器
+   * 当整个转录流程完全结束时调用，处理所有未达到MAX但可能满足MIN的累积器
+   */
+  async finalizeTranscription(
+    request: Omit<ProcessRequest, 'transcripts'>
+  ): Promise<ProcessResponse> {
+    console.log(`🎬 开始处理转录结束的剩余累积器`);
+    
+    try {
+      // 确保segmenter已初始化
+      if (!this.segmenter) {
+        console.log(`📭 segmenter未初始化，无需处理剩余累积器`);
+        return { success: true, segments: [], sentenceToSegmentMap: {} };
+      }
+
+      // 获取所有剩余的累积器
+      const remainingAccumulators = this.segmenter.finalizeAllRemainingAccumulators();
+      
+      if (remainingAccumulators.length === 0) {
+        console.log(`📭 没有剩余累积器需要处理`);
+        return { success: true, segments: [], sentenceToSegmentMap: {} };
+      }
+
+      // 处理每个剩余累积器
+      const segments: AudioSegment[] = [];
+      const sentenceToSegmentMap: Record<number, string> = {};
+      
+      for (const accumulator of remainingAccumulators) {
+        console.log(`🎵 处理剩余累积器: ${accumulator.generateSegmentId()}, ` +
+                    `时长=${accumulator.getTotalDuration(this.segmentConfig!.gapDurationMs)}ms`);
+        
+        // 🔄 处理纯复用累积器
+        if (accumulator.pendingSentences.length === 0 && accumulator.reusedSentences.length > 0) {
+          console.log(`🔄 [结束] 处理纯复用累积器: ${accumulator.generateSegmentId()}, ` +
+                      `复用句子数=${accumulator.reusedSentences.length}, ` +
+                      `复用audio_key=${accumulator.generatedAudioKey}`);
+          
+          if (!accumulator.generatedAudioKey) {
+            console.error(`❌ 纯复用累积器缺少audioKey: ${accumulator.generateSegmentId()}`);
+            continue;
+          }
+          
+          // 直接更新D1中的复用句子
+          if (request.transcriptionId) {
+            await this.updateSentencesAudioKey(
+              request.transcriptionId,
+              accumulator.reusedSentences,
+              accumulator.generatedAudioKey
+            );
+          }
+          
+          // 更新句子映射
+          accumulator.reusedSentences.forEach(s => {
+            sentenceToSegmentMap[s.sequence] = accumulator.generateSegmentId();
+          });
+          
+          continue;
+        }
+        
+        // 🔥 生成新音频：处理有待生成句子的累积器
+        if (accumulator.pendingSentences.length > 0) {
+          const segment = await this.processAndUploadSegment(
+            accumulator,
+            request.audioData,
+            request.outputPrefix,
+            request.transcriptionId!,
+            this.segmentConfig!.gapDurationMs
+          );
+          
+          if (segment) {
+            segments.push(segment);
+            
+            // 更新句子映射（待处理句子）
+            accumulator.pendingSentences.forEach(s => {
+              sentenceToSegmentMap[s.sequence] = segment.segmentId;
+            });
+            
+            // 🔄 也需要处理复用句子的映射
+            if (accumulator.reusedSentences.length > 0) {
+              console.log(`🔄 [结束] 映射复用句子: ${accumulator.reusedSentences.length}个`);
+              accumulator.reusedSentences.forEach(s => {
+                sentenceToSegmentMap[s.sequence] = segment.segmentId;
+              });
+            }
+          }
+        }
+      }
+      
+      console.log(`✅ 转录结束处理完成: 生成${segments.length}个最终音频片段`);
+      
+      return {
+        success: true,
+        segments,
+        sentenceToSegmentMap
+      };
+      
+    } catch (error) {
+      console.error(`❌ 转录结束处理失败:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
 }
