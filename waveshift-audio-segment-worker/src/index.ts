@@ -3,15 +3,8 @@ import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { AudioSegmentContainer } from './container';
-import { StreamingProcessor } from './streaming-processor-v2';
+import { StreamingProcessor } from './streaming-processor';
 
-// 新增Watch接口定义
-export interface WatchRequest {
-  audioKey: string;
-  transcriptionId: string;
-  outputPrefix: string;
-  taskId?: string;
-}
 
 export interface WatchResponse {
   success: boolean;

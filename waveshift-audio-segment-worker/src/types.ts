@@ -8,6 +8,20 @@ export interface TranscriptItem {
   content_type: 'speech' | 'non-speech';
 }
 
+export interface AudioSegment {
+  segmentId: string;
+  audioKey: string;
+  speaker: string;
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+  sentences: Array<{
+    sequence: number;
+    original: string;
+    translation?: string;
+  }>;
+}
+
 export interface Env {
   AUDIO_SEGMENT_CONTAINER: DurableObjectNamespace;
   DB: D1Database;
