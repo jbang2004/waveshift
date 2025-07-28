@@ -8,7 +8,7 @@ librosa==0.10.1
 numpy==1.24.3
 
 # 深度学习
-torch==2.0.1+cpu
+torch==2.0.1
 onnxruntime==1.15.1
 
 # 其他依赖
