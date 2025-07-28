@@ -32,12 +32,9 @@
     ]
   },
   
-  // Container不需要migration - DO已存在
-  // AudioSegmentContainer已在之前部署中创建
-  "migrations": [{
-    "tag": "v16", 
-    "new_sqlite_classes": ["DenoiseContainer"]
-  }],
+  // Container不需要migration - 所有DO已存在
+  // AudioSegmentContainer和DenoiseContainer都已在之前部署中创建
+  // "migrations": [],
   
   // 环境变量
   "vars": {
