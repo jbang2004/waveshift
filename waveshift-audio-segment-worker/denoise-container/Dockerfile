@@ -1,19 +1,28 @@
-# 多阶段构建 - 第一阶段：构建环境
+# 多阶段构建 - 第一阶段：构建环境（优化版）
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 
-# 安装构建依赖
+# 安装构建依赖（最小化）
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    && rm -rf /var/lib/apt/lists/*
+    libsndfile1-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 复制依赖文件
 COPY requirements.txt .
 
-# 安装Python依赖到特定目录
-RUN pip install --no-cache-dir --target=/app/deps -r requirements.txt
+# 安装Python依赖到特定目录（排除不必要的文件）
+RUN pip install --no-cache-dir --target=/app/deps -r requirements.txt \
+    && find /app/deps -type d -name "__pycache__" -exec rm -rf {} + \
+    && find /app/deps -type f -name "*.pyc" -delete \
+    && find /app/deps -type f -name "*.pyo" -delete \
+    && find /app/deps -type f -name "*.pyd" -delete \
+    && find /app/deps -name "tests" -type d -exec rm -rf {} + \
+    && find /app/deps -name "test" -type d -exec rm -rf {} + \
+    && find /app/deps -name "*.so" -exec strip {} \;
 
 # 多阶段构建 - 第二阶段：运行环境
 FROM python:3.11-slim
@@ -46,9 +55,9 @@ ENV TORCH_NUM_THREADS=4
 # 暴露端口
 EXPOSE 8080
 
-# 健康检查
+# 健康检查（移除requests依赖）
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # 启动命令
 CMD ["uvicorn", "denoise_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

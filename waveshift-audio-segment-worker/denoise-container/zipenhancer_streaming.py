@@ -8,7 +8,6 @@ import soundfile as sf
 import numpy as np
 import torch
 import onnxruntime
-import librosa
 from typing import Generator, Tuple
 
 def mag_pha_stft(signal, n_fft=400, hop_size=100, win_size=400, compress_factor=0.3):
@@ -168,8 +167,21 @@ def streaming_denoise(input_path: str, output_path: str,
     """
     print(f"🌊 开始流式降噪处理: {input_path}")
     
-    # 读取音频（可以考虑使用librosa的流式读取）
-    audio, sr = librosa.load(input_path, sr=16000, mono=True)
+    # 读取音频 - 使用soundfile替代librosa以减小镜像大小
+    audio, sr = sf.read(input_path)
+    # 转换为16kHz单声道
+    if len(audio.shape) > 1:
+        audio = np.mean(audio, axis=1)  # 转为单声道
+    if sr != 16000:
+        # 简单重采样（使用numpy线性插值，避免scipy依赖）
+        original_length = len(audio)
+        target_length = int(original_length * 16000 / sr)
+        audio = np.interp(
+            np.linspace(0, original_length - 1, target_length),
+            np.arange(original_length),
+            audio
+        )
+        sr = 16000
     
     # 计算块大小
     chunk_size = int(chunk_duration * sr)
