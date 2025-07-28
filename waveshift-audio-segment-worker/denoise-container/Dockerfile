@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements_alpine.txt
 # 复制所有服务器代码
 COPY minimal_server.py .
 COPY fastapi_server.py .
+COPY audio_server.py .
 COPY denoise_server.py .
 COPY zipenhancer_streaming.py .
 
@@ -38,5 +39,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:8080/health || exit 1
 
-# 🎯 渐进式启动：先用FastAPI基础版本验证
-CMD ["python", "fastapi_server.py"]
+# 🎯 渐进式启动：使用音频处理版本（有音频输出）
+CMD ["python", "audio_server.py"]
