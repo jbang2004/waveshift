@@ -69,7 +69,7 @@
   // 日志观测配置
   "observability": {
     "enabled": true
-  },
+  }
   
   // 构建配置 - 移除 TypeScript 构建
   // "build": {
