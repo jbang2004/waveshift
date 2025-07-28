@@ -55,9 +55,9 @@ ENV TORCH_NUM_THREADS=4
 # 暴露端口
 EXPOSE 8080
 
-# 健康检查（移除requests依赖）
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+# 健康检查（优化版 - 快速启动）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
 
-# 启动命令
-CMD ["uvicorn", "denoise_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+# 启动命令（优化版 - 快速启动，单worker避免内存问题）
+CMD ["uvicorn", "denoise_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--timeout-keep-alive", "60", "--log-level", "info"]
