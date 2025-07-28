@@ -12,9 +12,9 @@ RUN apk add --no-cache \
 # 设置工作目录
 WORKDIR /app
 
-# 复制 Rust 项目文件
-COPY audio-segment-container/Cargo.toml ./
-COPY audio-segment-container/src ./src
+# 复制 Rust 项目文件 (相对路径调整)
+COPY Cargo.toml ./
+COPY src ./src
 
 # 添加musl target并构建静态链接的二进制文件
 RUN rustup target add x86_64-unknown-linux-musl

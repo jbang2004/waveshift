@@ -4,15 +4,15 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   
-  // ✅ Container配置 - 新版Wrangler使用对象格式 
+  // ✅ Container配置 - 正确的Dockerfile路径
   "containers": {
     "AudioSegmentContainer": {
-      "image": "./audio-segment-container/Dockerfile",
+      "image": "./audio-segment-container",
       "instance_type": "standard",
       "max_instances": 3
     },
     "DenoiseContainer": {
-      "image": "./denoise-container/Dockerfile", 
+      "image": "./denoise-container", 
       "instance_type": "standard",
       "max_instances": 2
     }
