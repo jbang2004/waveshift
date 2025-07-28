@@ -24,6 +24,7 @@ interface AudioSegmentService {
 		transcriptionId: string;
 		outputPrefix: string;
 		taskId?: string;
+		enableDenoising?: boolean;  // 🆕 添加降噪选项
 	}): Promise<{
 		success: boolean;
 		segmentCount?: number;
@@ -59,7 +60,8 @@ export const ProcessingOptions = z.object({
 	targetLanguage: z.enum(['chinese', 'english']).default('chinese'),
 	style: z.enum(['normal', 'classical']).default('normal'),
 	startTime: z.number().gte(0).optional(),
-	endTime: z.number().gte(0).optional()
+	endTime: z.number().gte(0).optional(),
+	enableDenoising: z.boolean().optional().default(false)  // 🆕 添加降噪选项
 });
 
 export type ProcessingOptionsType = z.infer<typeof ProcessingOptions>;

@@ -33,14 +33,24 @@ export class StreamingProcessor {
   private db: D1Database;  // D1数据库实例
   private segmenter?: AudioSegmenter;  // 懒加载音频切分器实例
   private segmentConfig?: AudioSegmentConfig;  // 缓存配置，避免重复计算
+  private enableDenoising: boolean = false;  // 是否启用降噪
+  private denoiseContainer?: DurableObjectNamespace;  // 降噪容器
   
   constructor(
     private container: DurableObjectNamespace,
     private r2Bucket: R2Bucket,
     private env: Env,
-    db: D1Database
+    db: D1Database,
+    options?: {
+      enableDenoising?: boolean;
+      denoiseContainer?: DurableObjectNamespace;
+    }
   ) {
     this.db = db;
+    if (options) {
+      this.enableDenoising = options.enableDenoising || false;
+      this.denoiseContainer = options.denoiseContainer;
+    }
   }
   
   /**
@@ -170,9 +180,15 @@ export class StreamingProcessor {
         gapDurationMs
       );
       
+      // 🧠 1.5. 可选降噪处理
+      let finalAudioData = segmentData;
+      if (this.enableDenoising && this.denoiseContainer) {
+        finalAudioData = await this.denoiseAudio(segmentData, segmentId);
+      }
+      
       // 2. 上传到R2（使用相对路径）
       console.log(`📤 上传音频到R2: ${relativeAudioKey}`);
-      await this.r2Bucket.put(relativeAudioKey, segmentData, {
+      await this.r2Bucket.put(relativeAudioKey, finalAudioData, {
         httpMetadata: {
           contentType: 'audio/wav'
         }
@@ -412,6 +428,45 @@ export class StreamingProcessor {
         success: false,
         error: error instanceof Error ? error.message : String(error)
       };
+    }
+  }
+  
+  /**
+   * 调用降噪容器处理音频
+   */
+  private async denoiseAudio(audioData: ArrayBuffer, segmentId: string): Promise<ArrayBuffer> {
+    try {
+      console.log(`🧠 开始降噪处理: ${segmentId}`);
+      
+      // 获取降噪容器的DO实例
+      const id = this.denoiseContainer!.idFromName('denoise-processor');
+      const denoiseStub = this.denoiseContainer!.get(id);
+      
+      // 调用降噪容器
+      const response = await denoiseStub.fetch('https://container.internal/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'audio/wav',
+          'X-Segment-Id': segmentId,
+          'X-Enable-Streaming': 'true'
+        },
+        body: audioData
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`降噪容器返回错误 ${response.status}: ${errorText}`);
+      }
+      
+      const denoisedData = await response.arrayBuffer();
+      console.log(`✅ 降噪完成: ${segmentId}, 输入=${audioData.byteLength} bytes, 输出=${denoisedData.byteLength} bytes`);
+      
+      return denoisedData;
+      
+    } catch (error) {
+      console.error(`❌ 降噪失败，使用原始音频: ${segmentId}`, error);
+      // 失败时返回原始音频
+      return audioData;
     }
   }
 }

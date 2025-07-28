@@ -140,6 +140,8 @@ async fn execute_ffmpeg_for_ranges(
                 "-ss", &format!("{:.3}", start_sec),
                 "-i", input_path.to_str().unwrap(),
                 "-t", &format!("{:.3}", duration_sec),
+                "-ar", "16000",       // 🆕 重采样到16kHz (降噪模型要求)
+                "-ac", "1",           // 🆕 转换为单声道 (降噪模型要求)
                 "-c:a", "pcm_s16le",  // 明确指定WAV编码格式
                 "-f", "wav",          // 明确指定输出格式
                 "-avoid_negative_ts", "make_zero",
@@ -195,6 +197,8 @@ async fn execute_ffmpeg_for_ranges(
         ffmpeg_cmd
             .args(&["-filter_complex", &filter_complex])
             .args(&["-map", "[out]"])
+            .args(&["-ar", "16000"])       // 🆕 重采样到16kHz (降噪模型要求)
+            .args(&["-ac", "1"])           // 🆕 转换为单声道 (降噪模型要求)
             .args(&["-c:a", "pcm_s16le"])  // 明确指定WAV编码格式
             .args(&["-f", "wav"])          // 明确指定输出格式
             .arg(output_path.to_str().unwrap())

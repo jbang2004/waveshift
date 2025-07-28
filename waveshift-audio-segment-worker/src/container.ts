@@ -23,3 +23,25 @@ export class AudioSegmentContainer extends Container {
 		console.error('❌ AudioSegment Container error:', error);
 	}
 }
+
+export class DenoiseContainer extends Container {
+	override defaultPort = 8080;
+	override sleepAfter = '5m';
+
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, env);
+	}
+	
+	// 🧠 降噪容器：Python FastAPI服务处理降噪请求
+	override onStart() {
+		console.log('🚀 Denoise Container started - ZipEnhancer降噪服务');
+	}
+	
+	override onStop() {
+		console.log('⏹️ Denoise Container stopped');
+	}
+	
+	override onError(error: unknown) {
+		console.error('❌ Denoise Container error:', error);
+	}
+}

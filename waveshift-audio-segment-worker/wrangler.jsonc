@@ -5,26 +5,42 @@
   "compatibility_flags": ["nodejs_compat"],
   
   // Container 配置
-  "containers": [{
-    "name": "waveshift-audio-segment-container",
-    "class_name": "AudioSegmentContainer",
-    "image": "./Dockerfile",
-    "instance_type": "standard",
-    "max_instances": 3
-  }],
+  "containers": [
+    {
+      "name": "waveshift-audio-segment-container",
+      "class_name": "AudioSegmentContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard",
+      "max_instances": 3
+    },
+    {
+      "name": "waveshift-denoise-container",
+      "class_name": "DenoiseContainer",
+      "image": "./denoise-container/Dockerfile",
+      "instance_type": "standard",
+      "max_instances": 3
+    }
+  ],
   
   // Durable Object 绑定 - Container 需要对应的 DO 绑定
   "durable_objects": {
-    "bindings": [{
-      "name": "AUDIO_SEGMENT_CONTAINER",
-      "class_name": "AudioSegmentContainer"
-    }]
+    "bindings": [
+      {
+        "name": "AUDIO_SEGMENT_CONTAINER",
+        "class_name": "AudioSegmentContainer"
+      },
+      {
+        "name": "DENOISE_CONTAINER",
+        "class_name": "DenoiseContainer"
+      }
+    ]
   },
   
   // 容器迁移配置 - 使用递增tag解决DO已存在冲突
   "migrations": [{
-    "tag": "v13"
-    // 移除new_sqlite_classes，因为AudioSegmentContainer已存在
+    "tag": "v14",
+    "new_sqlite_classes": ["DenoiseContainer"]
+    // AudioSegmentContainer已存在，只需添加新的DenoiseContainer
   }],
   
   // 环境变量

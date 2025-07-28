@@ -116,7 +116,8 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 						audioKey,
 						transcriptionId,
 						outputPrefix,
-						taskId
+						taskId,
+						enableDenoising: options.enableDenoising || false  // 🆕 传递降噪选项
 					});
 				})
 			]);

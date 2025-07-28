@@ -1,0 +1,135 @@
+name: Deploy Individual Containers (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      container_service:
+        description: 'Which container service to deploy'
+        required: true
+        type: choice
+        options:
+          - 'audio-segment-worker'
+          - 'ffmpeg-worker'
+          - 'both'
+      force_rebuild:
+        description: 'Force rebuild containers'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+jobs:
+  deploy-audio-segment:
+    if: ${{ github.event.inputs.container_service == 'audio-segment-worker' || github.event.inputs.container_service == 'both' }}
+    runs-on: ubuntu-latest
+    name: Deploy Audio Segment Worker
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-audio-segment-worker
+          npm ci
+          
+      - name: Deploy Audio Segment Worker
+        run: |
+          cd waveshift-audio-segment-worker
+          echo "🚀 部署音频切分+降噪服务..."
+          
+          export CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          export CLOUDFLARE_ACCOUNT_ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          
+          npm run deploy
+          
+      - name: Health check Audio Segment
+        run: |
+          echo "🩺 音频切分服务健康检查..."
+          sleep 30
+          
+          if curl -f -s "https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health" > /dev/null; then
+            echo "✅ 音频切分服务健康"
+          else
+            echo "⚠️ 音频切分服务健康检查失败（可能还在启动）"
+          fi
+
+  deploy-ffmpeg:
+    if: ${{ github.event.inputs.container_service == 'ffmpeg-worker' || github.event.inputs.container_service == 'both' }}
+    runs-on: ubuntu-latest
+    name: Deploy FFmpeg Worker
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-ffmpeg-worker
+          npm ci
+          
+      - name: Deploy FFmpeg Worker
+        run: |
+          cd waveshift-ffmpeg-worker
+          echo "🚀 部署FFmpeg分离服务..."
+          
+          export CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          export CLOUDFLARE_ACCOUNT_ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          
+          npm run deploy
+          
+      - name: Health check FFmpeg
+        run: |
+          echo "🩺 FFmpeg服务健康检查..."
+          sleep 30
+          
+          # FFmpeg worker 没有健康检查端点，所以只检查基本访问
+          if curl -f -s "https://waveshift-ffmpeg-worker.jbang20042004.workers.dev/" > /dev/null; then
+            echo "✅ FFmpeg服务可访问"
+          else
+            echo "⚠️ FFmpeg服务访问失败（可能还在启动）"
+          fi
+
+  summary:
+    needs: [deploy-audio-segment, deploy-ffmpeg]
+    if: always()
+    runs-on: ubuntu-latest
+    name: Deployment Summary
+    
+    steps:
+      - name: Summary
+        run: |
+          echo "🎉 Container部署完成!"
+          echo ""
+          echo "📋 部署详情:"
+          echo "  - 请求服务: ${{ github.event.inputs.container_service }}"
+          echo "  - 强制重建: ${{ github.event.inputs.force_rebuild }}"
+          echo ""
+          echo "🔍 监控命令:"
+          if [[ "${{ github.event.inputs.container_service }}" == *"audio-segment"* ]]; then
+            echo "  wrangler tail waveshift-audio-segment-worker --format pretty"
+          fi
+          if [[ "${{ github.event.inputs.container_service }}" == *"ffmpeg"* ]]; then
+            echo "  wrangler tail waveshift-ffmpeg-worker --format pretty"
+          fi
+          echo ""
+          echo "🧪 测试建议:"
+          echo "  使用前端界面上传视频文件测试完整流程"

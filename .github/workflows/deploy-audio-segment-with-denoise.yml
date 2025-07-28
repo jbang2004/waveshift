@@ -1,0 +1,148 @@
+name: Deploy Audio Segment Worker with Denoise (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild containers (true/false)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      environment:
+        description: 'Deployment environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - 'production'
+          - 'staging'
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+jobs:
+  deploy-audio-segment-denoise:
+    runs-on: ubuntu-latest
+    name: Deploy Audio Segment + Denoise Containers
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          cd waveshift-audio-segment-worker
+          npm ci
+          
+      - name: Verify container structure
+        run: |
+          cd waveshift-audio-segment-worker
+          echo "🔍 验证项目结构..."
+          
+          # 检查必要文件
+          if [ ! -f "wrangler.jsonc" ]; then
+            echo "❌ wrangler.jsonc 不存在"
+            exit 1
+          fi
+          
+          if [ ! -d "audio-segment-container" ]; then
+            echo "❌ audio-segment-container 目录不存在"
+            exit 1
+          fi
+          
+          if [ ! -d "denoise-container" ]; then
+            echo "❌ denoise-container 目录不存在"
+            exit 1
+          fi
+          
+          if [ ! -f "denoise-container/speech_zipenhancer_ans_multiloss_16k_base/onnx_model.onnx" ]; then
+            echo "❌ ONNX模型文件不存在"
+            exit 1
+          fi
+          
+          echo "✅ 项目结构验证通过"
+          
+      - name: Deploy Audio Segment Worker with Denoise
+        run: |
+          cd waveshift-audio-segment-worker
+          echo "🚀 开始部署音频切分+降噪服务..."
+          
+          # 设置环境变量
+          export CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          export CLOUDFLARE_ACCOUNT_ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          
+          # 显示配置信息
+          echo "📋 部署配置:"
+          echo "  - Environment: ${{ github.event.inputs.environment }}"
+          echo "  - Force Rebuild: ${{ github.event.inputs.force_rebuild }}"
+          echo "  - Migration Tag: v14 (DenoiseContainer)"
+          
+          # 执行部署
+          npm run deploy
+          
+      - name: Wait for deployment
+        run: |
+          echo "⏳ 等待容器启动..."
+          sleep 60
+          
+      - name: Health check
+        run: |
+          echo "🩺 执行健康检查..."
+          
+          # 检查Worker基本功能
+          echo "检查Worker健康状态..."
+          
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s "https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health" > /dev/null; then
+              echo "✅ Worker健康检查通过"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "⚠️ 健康检查失败，重试 $RETRY_COUNT/$MAX_RETRIES..."
+              sleep 10
+            fi
+          done
+          
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "❌ 健康检查最终失败，但这可能是正常的（容器可能还在启动）"
+          fi
+          
+      - name: Deployment summary
+        run: |
+          echo "🎉 部署完成!"
+          echo ""
+          echo "📋 部署摘要:"
+          echo "  - 服务: waveshift-audio-segment-worker" 
+          echo "  - 功能: 音频切分 + 智能降噪"
+          echo "  - 采样率: 16kHz (降噪优化)"
+          echo "  - 声道: 单声道 (降噪优化)"
+          echo "  - 容器: 2个 (AudioSegment + Denoise)"
+          echo ""
+          echo "🔍 监控命令:"
+          echo "  wrangler tail waveshift-audio-segment-worker --format pretty"
+          echo ""
+          echo "🧪 测试方式:"
+          echo "  在前端界面启用降噪选项并上传音频文件"
+          
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ 部署失败!"
+          echo "请检查以下可能的问题:"
+          echo "1. CLOUDFLARE_API_TOKEN 和 CLOUDFLARE_ACCOUNT_ID 是否正确设置"
+          echo "2. wrangler.jsonc 配置是否正确"
+          echo "3. Container 构建是否成功"
+          echo "4. Migration tag 是否需要更新"

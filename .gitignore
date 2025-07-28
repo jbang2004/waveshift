@@ -44,7 +44,25 @@ target/
 **/workerd
 **/@cloudflare/workerd-*/bin/workerd
 
+# AI/ML models and large files (but keep essential ones)
+# **/*.onnx  # 注释掉，保留必要的ONNX模型
+**/*.pt
+**/*.pth
+**/*.h5
+**/*.pb
+
+# 只忽略示例文件，保留模型
+**/examples/
+**/test_audio/
+**/samples/
+
 # Build outputs
 build/
 out/
 .output/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
