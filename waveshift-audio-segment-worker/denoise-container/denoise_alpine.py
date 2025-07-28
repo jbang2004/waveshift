@@ -4,7 +4,7 @@
 渐进式添加降噪功能
 """
 
-from fastapi import FastAPI, Response, Header, HTTPException
+from fastapi import FastAPI, Response, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 import io
 import numpy as np
@@ -138,7 +138,7 @@ async def health():
 
 @app.post("/")
 async def denoise_audio(
-    audio_data: bytes,
+    request: Request,
     x_segment_id: Optional[str] = Header(None),
     x_speaker: Optional[str] = Header(None),
     x_enable_streaming: Optional[str] = Header("true")
@@ -148,6 +148,9 @@ async def denoise_audio(
     segment_id = x_segment_id or "unknown"
     speaker = x_speaker or "unknown"
     enable_streaming = x_enable_streaming.lower() == "true"
+    
+    # 🔧 修复：从请求体中读取原始二进制数据
+    audio_data = await request.body()
     
     logger.info(f"🎵 处理降噪请求: segment={segment_id}, speaker={speaker}, size={len(audio_data)} bytes")
     

@@ -4,7 +4,7 @@
 先验证音频读写功能，再添加降噪
 """
 
-from fastapi import FastAPI, Response, Header, HTTPException
+from fastapi import FastAPI, Response, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 import io
 import numpy as np
@@ -57,7 +57,7 @@ async def health():
 
 @app.post("/")
 async def process_audio(
-    audio_data: bytes,
+    request: Request,
     x_segment_id: Optional[str] = Header(None),
     x_speaker: Optional[str] = Header(None)
 ):
@@ -67,6 +67,9 @@ async def process_audio(
     start_time = time.time()
     segment_id = x_segment_id or "unknown"
     speaker = x_speaker or "unknown"
+    
+    # 🔧 修复：从请求体中读取原始二进制数据
+    audio_data = await request.body()
     
     logger.info(f"🎵 处理音频请求: segment={segment_id}, speaker={speaker}, size={len(audio_data)} bytes")
     
