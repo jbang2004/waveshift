@@ -1,0 +1,10 @@
+# Alpine Linux优化版依赖
+# 基于成功的Python容器配置逐步添加
+
+# FastAPI 服务框架
+fastapi==0.109.0
+uvicorn==0.25.0
+
+# 基础音频处理
+soundfile==0.12.1
+numpy==1.24.3

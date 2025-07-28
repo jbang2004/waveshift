@@ -1,9 +1,9 @@
-# 🚀 生产版本 - 基于成功的Alpine配置添加FastAPI
+# FastAPI版本 - 基于成功的minimal配置逐步扩展
 FROM python:3.11-alpine
 
 WORKDIR /app
 
-# 安装Alpine系统依赖
+# 安装Alpine编译依赖（numpy需要）
 RUN apk add --no-cache \
     wget \
     ca-certificates \
@@ -19,14 +19,8 @@ COPY requirements_alpine.txt .
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements_alpine.txt
 
-# 复制所有服务器代码
-COPY minimal_server.py .
+# 复制服务器代码
 COPY fastapi_server.py .
-COPY denoise_server.py .
-COPY zipenhancer_streaming.py .
-
-# 复制模型文件
-COPY speech_zipenhancer_ans_multiloss_16k_base/ ./speech_zipenhancer_ans_multiloss_16k_base/
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
@@ -38,5 +32,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:8080/health || exit 1
 
-# 🎯 渐进式启动：先用FastAPI基础版本验证
+# 启动FastAPI服务器
 CMD ["python", "fastapi_server.py"]
