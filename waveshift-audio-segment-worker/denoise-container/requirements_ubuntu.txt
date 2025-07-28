@@ -1,0 +1,20 @@
+# Ubuntu + Debian兼容版依赖
+# 支持完整的深度学习库生态
+
+# FastAPI 服务框架
+fastapi==0.109.0
+uvicorn==0.25.0
+
+# 基础音频处理
+soundfile==0.12.1
+numpy==1.24.3
+
+# 深度学习依赖（Ubuntu + Python 3.10兼容版本）
+# 使用CPU版本减小镜像大小
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.1+cpu
+onnxruntime==1.16.3
+
+# ZipEnhancer相关依赖（如果需要）
+# scipy==1.10.1
+# librosa==0.9.2
