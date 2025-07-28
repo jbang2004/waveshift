@@ -4,23 +4,19 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   
-  // Container 配置
-  "containers": [
-    {
-      "name": "waveshift-audio-segment-container",
-      "class_name": "AudioSegmentContainer",
+  // Container 配置 (新版Wrangler格式)
+  "containers": {
+    "AudioSegmentContainer": {
       "image": "./Dockerfile",
       "instance_type": "standard",
       "max_instances": 3
     },
-    {
-      "name": "waveshift-denoise-container",
-      "class_name": "DenoiseContainer",
-      "image": "./denoise-container/Dockerfile",
+    "DenoiseContainer": {
+      "image": "./denoise-container/Dockerfile", 
       "instance_type": "standard",
       "max_instances": 3
     }
-  ],
+  },
   
   // Durable Object 绑定 - Container 需要对应的 DO 绑定
   "durable_objects": {
