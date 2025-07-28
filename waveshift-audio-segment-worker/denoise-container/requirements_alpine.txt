@@ -1,5 +1,6 @@
 # Alpine Linux优化版依赖
-# Python 3.10 + Alpine 兼容版本
+# 🚨 暂时移除onnxruntime - Alpine兼容性问题
+# 使用音频处理版本确保容器正常启动
 
 # FastAPI 服务框架
 fastapi==0.109.0
@@ -8,9 +9,3 @@ uvicorn==0.25.0
 # 基础音频处理
 soundfile==0.12.1
 numpy==1.24.3
-
-# 深度学习依赖（Python 3.10 + Alpine兼容版本）
-# 使用CPU版本减小镜像大小
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.0.1+cpu
-onnxruntime==1.16.3

@@ -42,5 +42,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD wget -qO- http://localhost:8080/health || exit 1
 
-# 🎯 先验证音频处理，确认有声音输出
+# 🎯 使用无降噪的音频处理版本（Alpine + onnxruntime兼容性问题）
 CMD ["python", "audio_server.py"]
