@@ -32,12 +32,12 @@
     ]
   },
   
-  // 容器迁移配置 - 只添加DenoiseContainer，跳过有问题的AudioSegmentContainer
-  "migrations": [{
-    "tag": "v16", 
-    "new_sqlite_classes": ["DenoiseContainer"]
-    // 暂时只添加DenoiseContainer，AudioSegmentContainer已存在但Container配置可能有问题
-  }],
+  // 容器迁移配置 - 移除migration，使用现有DO配置
+  // "migrations": [{
+  //   "tag": "v16", 
+  //   "new_sqlite_classes": ["DenoiseContainer"]
+  //   // 所有DO已存在，无需migration
+  // }],
   
   // 环境变量
   "vars": {
