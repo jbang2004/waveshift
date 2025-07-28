@@ -4,19 +4,23 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   
-  // ✅ Container配置 - 正确的Dockerfile路径
-  "containers": {
-    "AudioSegmentContainer": {
+  // ✅ Container配置 - Array格式（与成功的ffmpeg-worker保持一致）
+  "containers": [
+    {
+      "name": "waveshift-audio-segment-container",
+      "class_name": "AudioSegmentContainer",
       "image": "./audio-segment-container",
       "instance_type": "standard",
       "max_instances": 3
     },
-    "DenoiseContainer": {
-      "image": "./denoise-container", 
+    {
+      "name": "waveshift-denoise-container",
+      "class_name": "DenoiseContainer",
+      "image": "./denoise-container",
       "instance_type": "standard",
       "max_instances": 2
     }
-  },
+  ],
   
   // Durable Object 绑定 - Container 需要对应的 DO 绑定
   "durable_objects": {

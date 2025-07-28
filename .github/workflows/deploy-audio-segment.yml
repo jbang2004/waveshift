@@ -48,16 +48,23 @@ jobs:
       - name: Verify Dockerfile and configuration
         run: |
           cd waveshift-audio-segment-worker
-          if [ ! -f Dockerfile ]; then
-            echo "❌ Dockerfile not found!"
+          # 检查两个容器的Dockerfile
+          if [ ! -f audio-segment-container/Dockerfile ]; then
+            echo "❌ Audio Segment Container Dockerfile not found!"
             exit 1
           fi
-          echo "✅ Dockerfile found (Python + FastAPI + pydub)"
-          echo "📋 Dockerfile FROM line:"
-          grep "FROM" Dockerfile
+          if [ ! -f denoise-container/Dockerfile ]; then
+            echo "❌ Denoise Container Dockerfile not found!"
+            exit 1
+          fi
+          echo "✅ Both Dockerfiles found"
+          echo "📋 Audio Segment Container FROM line:"
+          grep "FROM" audio-segment-container/Dockerfile
+          echo "📋 Denoise Container FROM line:"
+          grep "FROM" denoise-container/Dockerfile
           echo ""
           echo "📋 wrangler.jsonc container config:"
-          grep -A 5 "containers" wrangler.jsonc
+          grep -A 10 "containers" wrangler.jsonc
 
       # 🔐 R2 Secrets配置提醒
       - name: Check R2 secrets configuration
