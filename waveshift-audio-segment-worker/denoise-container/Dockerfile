@@ -24,6 +24,7 @@ COPY minimal_server.py .
 COPY fastapi_server.py .
 COPY audio_server.py .
 COPY denoise_server.py .
+COPY denoise_alpine.py .
 COPY zipenhancer_streaming.py .
 
 # 复制模型文件
@@ -31,13 +32,15 @@ COPY speech_zipenhancer_ans_multiloss_16k_base/ ./speech_zipenhancer_ans_multilo
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
+ENV OMP_NUM_THREADS=2
+ENV MKL_NUM_THREADS=2
 
 # 暴露端口
 EXPOSE 8080
 
 # 健康检查（使用wget）
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD wget -qO- http://localhost:8080/health || exit 1
 
-# 🎯 渐进式启动：使用音频处理版本（有音频输出）
+# 🎯 先验证音频处理，确认有声音输出
 CMD ["python", "audio_server.py"]
