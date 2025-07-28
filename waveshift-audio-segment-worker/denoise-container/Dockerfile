@@ -13,9 +13,10 @@ RUN apt-get update && apt-get install -y \
 
 # 复制依赖文件
 COPY requirements.txt .
+COPY requirements_debug.txt .
 
-# 安装Python依赖到特定目录（排除不必要的文件）
-RUN pip install --no-cache-dir --target=/app/deps -r requirements.txt \
+# 🔍 调试模式：使用简化依赖避免大型包导致的崩溃
+RUN pip install --no-cache-dir --target=/app/deps -r requirements_debug.txt \
     && find /app/deps -type d -name "__pycache__" -exec rm -rf {} + \
     && find /app/deps -type f -name "*.pyc" -delete \
     && find /app/deps -type f -name "*.pyo" -delete \
@@ -42,6 +43,7 @@ COPY --from=builder /app/deps /usr/local/lib/python3.11/site-packages
 # 复制应用代码
 COPY denoise_server.py .
 COPY zipenhancer_streaming.py .
+COPY debug_server.py .
 
 # 复制模型文件
 COPY speech_zipenhancer_ans_multiloss_16k_base/ ./speech_zipenhancer_ans_multiloss_16k_base/
@@ -59,5 +61,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
 
-# 启动命令（优化版 - 快速启动，单worker避免内存问题）
-CMD ["uvicorn", "denoise_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--timeout-keep-alive", "60", "--log-level", "info"]
+# 🔍 调试模式：使用最简化服务器定位问题
+CMD ["uvicorn", "debug_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--timeout-keep-alive", "60", "--log-level", "debug"]
