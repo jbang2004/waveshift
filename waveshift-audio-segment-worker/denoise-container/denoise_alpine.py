@@ -223,10 +223,16 @@ async def denoise_audio(
                    f"耗时={process_time:.2f}s")
         
         # 7. 清理内存
-        if audio is not None:
-            del audio
-        if enhanced_audio is not None and enhanced_audio is not audio:
-            del enhanced_audio
+        try:
+            if 'audio' in locals() and audio is not None:
+                del audio
+        except:
+            pass
+        try:
+            if 'enhanced_audio' in locals() and enhanced_audio is not None:
+                del enhanced_audio
+        except:
+            pass
         gc.collect()
         
         return Response(
@@ -245,10 +251,16 @@ async def denoise_audio(
         logger.error(f"❌ 请求处理失败: segment={segment_id}, error={e}")
         
         # 🔧 异常情况下也清理内存
-        if audio is not None:
-            del audio
-        if enhanced_audio is not None:
-            del enhanced_audio
+        try:
+            if 'audio' in locals() and audio is not None:
+                del audio
+        except:
+            pass
+        try:
+            if 'enhanced_audio' in locals() and enhanced_audio is not None:
+                del enhanced_audio
+        except:
+            pass
         gc.collect()
         
         return Response(
