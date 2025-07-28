@@ -32,12 +32,11 @@
     ]
   },
   
-  // 容器迁移配置 - 删除并重新创建AudioSegmentContainer以修复Container配置
+  // 容器迁移配置 - 只添加DenoiseContainer，跳过有问题的AudioSegmentContainer
   "migrations": [{
-    "tag": "v15", 
-    "delete_classes": ["AudioSegmentContainer"],
-    "new_sqlite_classes": ["AudioSegmentContainer", "DenoiseContainer"]
-    // 先删除有问题的AudioSegmentContainer，然后重新创建所有Container类
+    "tag": "v16", 
+    "new_sqlite_classes": ["DenoiseContainer"]
+    // 暂时只添加DenoiseContainer，AudioSegmentContainer已存在但Container配置可能有问题
   }],
   
   // 环境变量
