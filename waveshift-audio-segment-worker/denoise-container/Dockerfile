@@ -1,5 +1,5 @@
-# 🚀 生产版本 - 基于成功的Alpine配置添加FastAPI
-FROM python:3.11-alpine
+# 🚀 生产版本 - 降级到Python 3.10以支持onnxruntime
+FROM python:3.10-alpine
 
 WORKDIR /app
 
