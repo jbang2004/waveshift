@@ -19,11 +19,7 @@ COPY requirements_ubuntu.txt .
 # 安装Python依赖（Ubuntu下onnxruntime可用）
 RUN pip install --no-cache-dir -r requirements_ubuntu.txt
 
-# 复制所有服务器代码
-COPY minimal_server.py .
-COPY fastapi_server.py .
-COPY audio_server.py .
-COPY denoise_server.py .
+# 复制核心服务代码
 COPY denoise_alpine.py .
 COPY zipenhancer_streaming.py .
 
