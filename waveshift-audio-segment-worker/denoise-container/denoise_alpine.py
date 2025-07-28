@@ -154,6 +154,10 @@ async def denoise_audio(
     
     logger.info(f"🎵 处理降噪请求: segment={segment_id}, speaker={speaker}, size={len(audio_data)} bytes")
     
+    # 🔧 修复：在try外初始化变量，避免作用域错误
+    audio = None
+    enhanced_audio = None
+    
     try:
         # 1. 读取音频
         audio, sr = sf.read(io.BytesIO(audio_data))
@@ -219,8 +223,9 @@ async def denoise_audio(
                    f"耗时={process_time:.2f}s")
         
         # 7. 清理内存
-        del audio
-        if 'enhanced_audio' in locals() and enhanced_audio is not audio:
+        if audio is not None:
+            del audio
+        if enhanced_audio is not None and enhanced_audio is not audio:
             del enhanced_audio
         gc.collect()
         
@@ -238,6 +243,13 @@ async def denoise_audio(
         
     except Exception as e:
         logger.error(f"❌ 请求处理失败: segment={segment_id}, error={e}")
+        
+        # 🔧 异常情况下也清理内存
+        if audio is not None:
+            del audio
+        if enhanced_audio is not None:
+            del enhanced_audio
+        gc.collect()
         
         return Response(
             content=str(e),
