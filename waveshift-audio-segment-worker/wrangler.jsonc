@@ -36,13 +36,8 @@
     ]
   },
   
-  // ✅ Migration配置 - Wrangler 4.x 要求
-  "migrations": [
-    {
-      "tag": "v1",  
-      "new_classes": ["AudioSegmentContainer", "DenoiseContainer"]
-    }
-  ],
+  // ✅ Migration配置已移除 - Durable Objects已存在，无需新建
+  // "migrations": [],  // 不需要migration，因为AudioSegmentContainer和DenoiseContainer已存在
   
   // 环境变量
   "vars": {
