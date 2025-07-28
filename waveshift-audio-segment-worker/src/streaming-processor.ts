@@ -316,7 +316,7 @@ export class StreamingProcessor {
   }
   
   /**
-   * 生成音频片段（调用Container）
+   * 生成音频片段（调用Container）- 使用Container API
    */
   private async generateSegmentAudio(
     accumulator: StreamingAccumulator,
@@ -325,12 +325,12 @@ export class StreamingProcessor {
   ): Promise<ArrayBuffer> {
     const timeRanges = accumulator.timeRanges;
     
-    // 获取Container实例
-    const containerId = this.container.idFromName('audio-segment');
-    const container = this.container.get(containerId);
+    // ✅ 使用Container API - 与ffmpeg-worker保持一致
+    const { getRandom } = await import('@cloudflare/containers');
+    const container = await getRandom(this.container as any, 3);
     
     // 调用Container处理
-    const response = await container.fetch('https://audio-segment/', {
+    const response = await container.fetch(new Request('https://audio-segment/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
@@ -338,7 +338,7 @@ export class StreamingProcessor {
         'X-Gap-Duration': gapDurationMs.toString()
       },
       body: audioData
-    });
+    }));
     
     if (!response.ok) {
       const error = await response.text();
@@ -432,18 +432,18 @@ export class StreamingProcessor {
   }
   
   /**
-   * 调用降噪容器处理音频
+   * 调用降噪容器处理音频 - 使用Container API
    */
   private async denoiseAudio(audioData: ArrayBuffer, segmentId: string): Promise<ArrayBuffer> {
     try {
       console.log(`🧠 开始降噪处理: ${segmentId}`);
       
-      // 获取降噪容器的DO实例
-      const id = this.denoiseContainer!.idFromName('denoise-processor');
-      const denoiseStub = this.denoiseContainer!.get(id);
+      // ✅ 使用Container API - 与ffmpeg-worker保持一致
+      const { getRandom } = await import('@cloudflare/containers');
+      const denoiseContainer = await getRandom(this.denoiseContainer as any, 2);
       
       // 调用降噪容器
-      const response = await denoiseStub.fetch('https://container.internal/', {
+      const response = await denoiseContainer.fetch(new Request('https://denoise/', {
         method: 'POST',
         headers: {
           'Content-Type': 'audio/wav',
@@ -451,7 +451,7 @@ export class StreamingProcessor {
           'X-Enable-Streaming': 'true'
         },
         body: audioData
-      });
+      }));
       
       if (!response.ok) {
         const errorText = await response.text();
