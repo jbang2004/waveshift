@@ -9,14 +9,14 @@
     {
       "name": "waveshift-audio-segment-container",
       "class_name": "AudioSegmentContainer",
-      "image": "./audio-segment-container",
+      "image": "./audio-segment-container/Dockerfile",
       "instance_type": "standard",
       "max_instances": 3
     },
     {
       "name": "waveshift-denoise-container",
       "class_name": "DenoiseContainer",
-      "image": "./denoise-container",
+      "image": "./denoise-container/Dockerfile",
       "instance_type": "standard",
       "max_instances": 2
     }
@@ -36,9 +36,13 @@
     ]
   },
   
-  // Container不需要migration - 所有DO已存在
-  // AudioSegmentContainer和DenoiseContainer都已在之前部署中创建
-  // "migrations": [],
+  // ✅ Migration配置 - Wrangler 4.x 要求
+  "migrations": [
+    {
+      "tag": "v1",  
+      "new_classes": ["AudioSegmentContainer", "DenoiseContainer"]
+    }
+  ],
   
   // 环境变量
   "vars": {
