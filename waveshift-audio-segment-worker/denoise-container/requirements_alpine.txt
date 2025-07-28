@@ -13,4 +13,4 @@ numpy==1.24.3
 # 使用CPU版本减小镜像大小
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.0.1+cpu
-onnxruntime==1.16.3
+onnxruntime
