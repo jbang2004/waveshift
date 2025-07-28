@@ -4,19 +4,9 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   
-  // Container 配置 - Wrangler 3.x 需要对象格式
-  "containers": {
-    "AudioSegmentContainer": {
-      "image": "./Dockerfile",
-      "instance_type": "standard",
-      "max_instances": 3
-    },
-    "DenoiseContainer": {
-      "image": "./denoise-container/Dockerfile", 
-      "instance_type": "standard",
-      "max_instances": 3
-    }
-  },
+  // 移除Container配置 - 这些类实际作为Durable Object使用
+  // Container功能与当前架构不兼容
+  // "containers": {},
   
   // Durable Object 绑定 - Container 需要对应的 DO 绑定
   "durable_objects": {
@@ -32,11 +22,8 @@
     ]
   },
   
-  // 容器迁移配置 - 添加新tag尝试刷新Container状态
-  "migrations": [{
-    "tag": "v18"
-    // 空migration，仅用于触发更新
-  }],
+  // 迁移配置 - 保持现有DO结构
+  // "migrations": [],
   
   // 环境变量
   "vars": {
