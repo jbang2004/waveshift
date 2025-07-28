@@ -32,11 +32,11 @@
     ]
   },
   
-  // 容器迁移配置 - 使用递增tag解决DO已存在冲突
+  // 容器迁移配置 - 修复Container配置与DO不匹配问题
   "migrations": [{
-    "tag": "v14",
-    "new_sqlite_classes": ["DenoiseContainer"]
-    // AudioSegmentContainer已存在，只需添加新的DenoiseContainer
+    "tag": "v15", 
+    "new_sqlite_classes": ["AudioSegmentContainer", "DenoiseContainer"]
+    // 重新配置所有Container类，解决格式变更导致的不匹配问题
   }],
   
   // 环境变量
