@@ -33,7 +33,7 @@ export class StreamingProcessor {
   private db: D1Database;  // D1数据库实例
   private segmenter?: AudioSegmenter;  // 懒加载音频切分器实例
   private segmentConfig?: AudioSegmentConfig;  // 缓存配置，避免重复计算
-  private enableDenoising: boolean = false;  // 是否启用降噪
+  private enableDenoising: boolean = true;  // 是否启用降噪（默认开启）
   private denoiseContainer?: DurableObjectNamespace;  // 降噪容器
   
   constructor(
@@ -48,7 +48,7 @@ export class StreamingProcessor {
   ) {
     this.db = db;
     if (options) {
-      this.enableDenoising = options.enableDenoising || false;
+      this.enableDenoising = options.enableDenoising !== undefined ? options.enableDenoising : true;
       this.denoiseContainer = options.denoiseContainer;
     }
   }

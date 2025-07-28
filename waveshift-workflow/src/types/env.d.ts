@@ -61,7 +61,7 @@ export const ProcessingOptions = z.object({
 	style: z.enum(['normal', 'classical']).default('normal'),
 	startTime: z.number().gte(0).optional(),
 	endTime: z.number().gte(0).optional(),
-	enableDenoising: z.boolean().optional().default(false)  // 🆕 添加降噪选项
+	enableDenoising: z.boolean().optional().default(true)  // 🆕 添加降噪选项（默认开启）
 });
 
 export type ProcessingOptionsType = z.infer<typeof ProcessingOptions>;

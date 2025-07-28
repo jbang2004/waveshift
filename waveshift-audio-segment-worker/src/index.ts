@@ -179,7 +179,7 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
         this.env,
         this.env.DB,  // 传入DB实例用于实时更新
         {
-          enableDenoising: params.enableDenoising || false,
+          enableDenoising: params.enableDenoising !== undefined ? params.enableDenoising : true,  // 默认开启降噪
           denoiseContainer: this.env.DENOISE_CONTAINER  // 🆕 传递降噪容器
         }
       );
