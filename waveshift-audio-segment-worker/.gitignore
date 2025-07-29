@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.open-next/
+.next/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.dev.vars
+
+# IDE
+.vscode/
+.idea/
+
+# Wrangler
+.wrangler/
+worker-configuration.d.ts
+
+# macOS
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo
