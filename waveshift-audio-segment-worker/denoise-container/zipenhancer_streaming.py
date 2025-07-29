@@ -44,25 +44,15 @@ class StreamingZipEnhancer:
             chunk_duration: 每个处理块的时长（秒）
             overlap_duration: 块之间的重叠时长（秒）
         """
-        # 🚀 ONNX Runtime 性能优化配置
+        # 🔧 简化ONNX Runtime配置适配0.5 vCPU
         sess_options = onnxruntime.SessionOptions()
-        sess_options.intra_op_num_threads = 8  # 增加推理线程数
-        sess_options.inter_op_num_threads = 2  # 操作间并行
-        sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-        
-        # 使用优化的执行提供者
-        providers = [
-            ('CPUExecutionProvider', {
-                'intra_op_num_threads': 8,
-                'arena_extend_strategy': 'kNextPowerOfTwo',
-                'cpu_memory_arena_cfg': 'BFC'
-            })
-        ]
+        sess_options.intra_op_num_threads = 1  # 单线程避免竞争
+        sess_options.inter_op_num_threads = 1  # 单线程操作
+        sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_BASIC
         
         self.session = onnxruntime.InferenceSession(
             onnx_model_path, 
-            sess_options=sess_options,
-            providers=providers
+            sess_options=sess_options
         )
         self.chunk_size = chunk_size
         self.overlap_size = overlap_size

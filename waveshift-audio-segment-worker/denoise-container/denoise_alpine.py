@@ -91,8 +91,8 @@ def get_enhancer():
         
         global_enhancer = StreamingZipEnhancer(
             onnx_model_path=model_path,
-            chunk_duration=3.0,  # 🚀 增大chunk以减少推理次数 (1.0 → 3.0秒)
-            overlap_duration=0.5  # 保持适当重叠确保质量
+            chunk_duration=0.5,  # 🔧 减小chunk适配0.5 vCPU (3.0 → 0.5秒)
+            overlap_duration=0.1  # 减少重叠降低计算量
         )
         
         load_time = time.time() - start_time
