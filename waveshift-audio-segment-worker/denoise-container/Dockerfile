@@ -28,8 +28,12 @@ COPY speech_zipenhancer_ans_multiloss_16k_base/ ./speech_zipenhancer_ans_multilo
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
-ENV OMP_NUM_THREADS=2
-ENV MKL_NUM_THREADS=2
+# 🚀 性能优化：增加线程数以充分利用容器CPU
+ENV OMP_NUM_THREADS=8
+ENV MKL_NUM_THREADS=8
+# ONNX Runtime 优化
+ENV ORT_NUM_THREADS=8
+ENV OMP_WAIT_POLICY=ACTIVE
 
 # 暴露端口
 EXPOSE 8080
