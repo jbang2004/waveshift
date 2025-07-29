@@ -25,8 +25,13 @@
     ]
   },
   
-  // ✅ Migration配置已移除 - AudioSegmentContainer已存在，直接使用现有DO
-  // "migrations": [],  // 不需要migration，AudioSegmentContainer已存在
+  // ✅ Migration配置 - 删除DenoiseContainer绑定
+  "migrations": [
+    {
+      "tag": "v19",
+      "deleted_classes": ["DenoiseContainer"]
+    }
+  ],
   
   // 环境变量
   "vars": {
