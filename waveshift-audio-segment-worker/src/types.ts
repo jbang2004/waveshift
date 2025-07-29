@@ -24,7 +24,6 @@ export interface AudioSegment {
 
 export interface Env {
   AUDIO_SEGMENT_CONTAINER: DurableObjectNamespace;
-  DENOISE_CONTAINER: DurableObjectNamespace;  // 🆕 降噪容器
   DB: D1Database;
   R2_BUCKET: R2Bucket;
   CLOUDFLARE_ACCOUNT_ID: string;

@@ -4,7 +4,7 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   
-  // ✅ Container配置 - Array格式（与成功的ffmpeg-worker保持一致）
+  // ✅ Container配置 - 精简配置仅保留核心音频切分功能
   "containers": [
     {
       "name": "waveshift-audio-segment-container",
@@ -12,32 +12,21 @@
       "image": "./audio-segment-container/Dockerfile",
       "instance_type": "standard",
       "max_instances": 3
-    },
-    {
-      "name": "waveshift-denoise-container",
-      "class_name": "DenoiseContainer",
-      "image": "./denoise-container/Dockerfile",
-      "instance_type": "standard",
-      "max_instances": 2
     }
   ],
   
-  // Durable Object 绑定 - Container 需要对应的 DO 绑定
+  // Durable Object 绑定 - 精简配置仅保留音频切分容器
   "durable_objects": {
     "bindings": [
       {
         "name": "AUDIO_SEGMENT_CONTAINER",
         "class_name": "AudioSegmentContainer"
-      },
-      {
-        "name": "DENOISE_CONTAINER",
-        "class_name": "DenoiseContainer"
       }
     ]
   },
   
-  // ✅ Migration配置已移除 - Durable Objects已存在，无需新建
-  // "migrations": [],  // 不需要migration，因为AudioSegmentContainer和DenoiseContainer已存在
+  // ✅ Migration配置已移除 - AudioSegmentContainer已存在，直接使用现有DO
+  // "migrations": [],  // 不需要migration，AudioSegmentContainer已存在
   
   // 环境变量
   "vars": {

@@ -25,7 +25,6 @@ export interface AudioSegmentService {
     transcriptionId: string;
     outputPrefix: string;
     taskId?: string;
-    enableDenoising?: boolean;  // 🆕 添加降噪开关
   }): Promise<{
     success: boolean;
     segmentCount?: number;
@@ -91,7 +90,6 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
     transcriptionId: string;
     outputPrefix: string;
     taskId?: string;
-    enableDenoising?: boolean;  // 🆕 添加降噪开关
   }): Promise<{
     success: boolean;
     segmentCount?: number;
@@ -177,11 +175,7 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
         this.env.AUDIO_SEGMENT_CONTAINER,
         this.env.R2_BUCKET,
         this.env,
-        this.env.DB,  // 传入DB实例用于实时更新
-        {
-          enableDenoising: params.enableDenoising !== undefined ? params.enableDenoising : true,  // 默认开启降噪
-          denoiseContainer: this.env.DENOISE_CONTAINER  // 🆕 传递降噪容器
-        }
+        this.env.DB  // 传入DB实例用于实时更新
       );
       
       // 3. 轮询状态
@@ -360,7 +354,7 @@ export class AudioSegmentWorker extends WorkerEntrypoint<Env> implements AudioSe
 
 
 // 导出 - 🔧 修复Service Binding entrypoint问题  
-export { AudioSegmentContainer, DenoiseContainer } from './container';
+export { AudioSegmentContainer } from './container';
 // AudioSegmentWorker已在类定义处export，无需重复导出
 
 // HTTP处理器 - 处理普通HTTP请求（健康检查、调试等）

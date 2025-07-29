@@ -10,7 +10,7 @@
     "tail": "wrangler tail",
     "type-check": "tsc --noEmit",
     "cf-typegen": "wrangler types",
-    "container:dev": "cd audio-segment-container && python src/main.py"
+    "container:dev": "cd audio-segment-container && cargo run"
   },
   "keywords": [
     "cloudflare",

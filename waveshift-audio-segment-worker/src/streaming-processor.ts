@@ -33,24 +33,14 @@ export class StreamingProcessor {
   private db: D1Database;  // D1数据库实例
   private segmenter?: AudioSegmenter;  // 懒加载音频切分器实例
   private segmentConfig?: AudioSegmentConfig;  // 缓存配置，避免重复计算
-  private enableDenoising: boolean = true;  // 启用降噪（默认开启）
-  private denoiseContainer?: DurableObjectNamespace;  // 降噪容器
   
   constructor(
     private container: DurableObjectNamespace,
     private r2Bucket: R2Bucket,
     private env: Env,
-    db: D1Database,
-    options?: {
-      enableDenoising?: boolean;
-      denoiseContainer?: DurableObjectNamespace;
-    }
+    db: D1Database
   ) {
     this.db = db;
-    if (options) {
-      this.enableDenoising = options.enableDenoising !== undefined ? options.enableDenoising : true;
-      this.denoiseContainer = options.denoiseContainer;
-    }
   }
   
   /**
@@ -180,11 +170,8 @@ export class StreamingProcessor {
         gapDurationMs
       );
       
-      // 🧠 1.5. 可选降噪处理
-      let finalAudioData = segmentData;
-      if (this.enableDenoising && this.denoiseContainer) {
-        finalAudioData = await this.denoiseAudio(segmentData, segmentId);
-      }
+      // 🎵 使用原始音频数据（移除降噪功能）
+      const finalAudioData = segmentData;
       
       // 2. 上传到R2（使用相对路径）
       console.log(`📤 上传音频到R2: ${relativeAudioKey}`);
@@ -431,42 +418,5 @@ export class StreamingProcessor {
     }
   }
   
-  /**
-   * 调用降噪容器处理音频 - 使用Container API
-   */
-  private async denoiseAudio(audioData: ArrayBuffer, segmentId: string): Promise<ArrayBuffer> {
-    try {
-      console.log(`🧠 开始降噪处理: ${segmentId}`);
-      
-      // ✅ 使用Container API - 与ffmpeg-worker保持一致
-      const { getRandom } = await import('@cloudflare/containers');
-      const denoiseContainer = await getRandom(this.denoiseContainer as any, 2);
-      
-      // 调用降噪容器
-      const response = await denoiseContainer.fetch(new Request('https://denoise/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'audio/wav',
-          'X-Segment-Id': segmentId,
-          'X-Enable-Streaming': 'true'
-        },
-        body: audioData
-      }));
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`降噪容器返回错误 ${response.status}: ${errorText}`);
-      }
-      
-      const denoisedData = await response.arrayBuffer();
-      console.log(`✅ 降噪完成: ${segmentId}, 输入=${audioData.byteLength} bytes, 输出=${denoisedData.byteLength} bytes`);
-      
-      return denoisedData;
-      
-    } catch (error) {
-      console.error(`❌ 降噪失败，使用原始音频: ${segmentId}`, error);
-      // 失败时返回原始音频
-      return audioData;
-    }
-  }
+  // 降噪功能已移除 - 保持代码精简
 }

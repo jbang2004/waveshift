@@ -48,20 +48,14 @@ jobs:
       - name: Verify Dockerfile and configuration
         run: |
           cd waveshift-audio-segment-worker
-          # 检查两个容器的Dockerfile
+          # 检查音频切分容器的Dockerfile
           if [ ! -f audio-segment-container/Dockerfile ]; then
             echo "❌ Audio Segment Container Dockerfile not found!"
             exit 1
           fi
-          if [ ! -f denoise-container/Dockerfile ]; then
-            echo "❌ Denoise Container Dockerfile not found!"
-            exit 1
-          fi
-          echo "✅ Both Dockerfiles found"
+          echo "✅ Audio Segment Container Dockerfile found"
           echo "📋 Audio Segment Container FROM line:"
           grep "FROM" audio-segment-container/Dockerfile
-          echo "📋 Denoise Container FROM line:"
-          grep "FROM" denoise-container/Dockerfile
           echo ""
           echo "📋 wrangler.jsonc container config:"
           grep -A 10 "containers" wrangler.jsonc
@@ -112,20 +106,20 @@ jobs:
           curl -f https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health || echo "Health check failed"
           
           # 🔧 移除测试音频调用，避免不必要的R2访问
-          echo "跳过音频切分接口测试（避免test/sample.mp3调用）"
+          echo "跳过音频切分接口测试（Rust容器需R2权限）"
 
       - name: Post-deployment verification
         if: success()
         run: |
           echo "🎯 验证部署结果..."
           echo "✅ Audio Segment 容器已成功部署到 Cloudflare"
-          echo "📦 容器技术栈: Python 3.11 + FastAPI + pydub + ffmpeg"
+          echo "📦 容器技术栈: Rust + Hyper + FFmpeg (精简版 - 纯音频切分功能)"
           echo "🔧 instance_type: standard (4GB RAM)"
           echo ""
           echo "📝 容器特性:"
-          echo "- 基础镜像: python:3.11-slim"
-          echo "- 音频处理: pydub + ffmpeg"
-          echo "- API框架: FastAPI"
+          echo "- 基础镜像: rust:alpine + alfg/ffmpeg"
+          echo "- 音频处理: Rust + FFmpeg CLI"
+          echo "- API框架: Hyper HTTP"
           echo "- 存储集成: Cloudflare R2"
           echo ""
           echo "🔍 如需调试容器启动，请检查:"
