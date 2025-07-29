@@ -39,6 +39,7 @@ target/
 # Local development files
 .cache/
 .temp/
+storage/
 
 # Large binary files that shouldn't be committed
 **/workerd
