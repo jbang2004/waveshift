@@ -865,8 +865,251 @@ CMD ["./separate-container"]
 - [ ] 配置 `MAX_CONCURRENT_REQUESTS` (基于 API 计划)
 - [ ] 如需处理大文件，考虑升级到付费计划并配置 `cpu_ms`
 
+### 🚀 阿里云FC容器镜像部署 ⭐ **新增功能** (2025-07)
+
+#### **🎯 FC降噪服务架构**
+- **技术栈**: Python 3.10 + FastAPI + PyTorch + ONNX Runtime
+- **部署平台**: 阿里云函数计算3.0 自定义容器
+- **核心功能**: ZipEnhancer降噪模型，支持实时音频去噪处理
+- **资源配置**: 2 vCPU + 4GB内存 + 新加坡区域(ap-southeast-1)
+- **镜像仓库**: ACR (阿里云容器镜像服务)
+
+#### **📁 项目结构** (fc-denoise-service)
+```
+fc-denoise-service/
+├── src/
+│   ├── fc_denoise_server.py      # FastAPI服务器主文件
+│   ├── zipenhancer_model.py      # ZipEnhancer模型封装
+│   └── audio_processor.py        # 音频处理工具
+├── models/
+│   └── zipenhancer.onnx          # ONNX模型文件
+├── requirements-fixed.txt        # 完整依赖(包含PyTorch+ONNX)
+├── requirements-simple.txt       # 简化依赖(已弃用)
+├── Dockerfile.minimal-fixed      # 推荐Dockerfile(避免系统包)
+├── Dockerfile.fixed              # 完整Dockerfile(包含系统依赖)
+├── s.yaml                        # Serverless Devs配置
+├── deploy-fc.sh                  # 一键部署脚本
+└── test-fixed-local.py           # 本地测试脚本
+```
+
+#### **⚠️ 关键部署经验**
+
+##### **1. Docker网络问题解决**
+- **症状**: SSL握手失败、包管理器连接超时
+- **解决方案**: 使用代理 + `--network host` 标志
+```bash
+# ✅ 成功的构建命令
+docker build --platform linux/amd64 --network host \
+  --build-arg https_proxy=http://127.0.0.1:10808 \
+  --build-arg http_proxy=http://127.0.0.1:10808 \
+  -f Dockerfile.minimal-fixed -t fc-denoise:v1.1-fixed .
+```
+
+##### **2. 依赖管理策略**
+- **❌ 失败**: requirements-simple.txt 缺少AI模型依赖
+- **✅ 成功**: requirements-fixed.txt 包含完整PyTorch+ONNX依赖
+- **关键依赖**:
+```txt
+torch==2.0.1+cpu          # PyTorch CPU版本
+torchaudio==2.0.2+cpu      # 音频处理
+onnxruntime==1.16.3        # ONNX Runtime
+librosa==0.10.1            # 音频分析
+soundfile==0.12.1          # 音频文件读写
+```
+
+##### **3. Dockerfile最佳实践**
+- **推荐**: `Dockerfile.minimal-fixed` (避免系统包安装)
+- **关键配置**:
+```dockerfile
+# 避免网络问题的pip配置
+RUN pip install --no-cache-dir \
+    --trusted-host pypi.org \
+    --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org \
+    --trusted-host download.pytorch.org \
+    -r requirements.txt
+
+# FC优化环境变量
+ENV OMP_NUM_THREADS=2
+ENV MKL_NUM_THREADS=2
+ENV ORT_NUM_THREADS=2
+ENV TORCH_NUM_THREADS=2
+```
+
+#### **🔧 ACR推送流程**
+```bash
+# 1. 登录ACR
+docker login crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com \
+  -u aliyun0518007542 -p 13318251863jbang
+
+# 2. 标记镜像
+docker tag fc-denoise:v1.1-fixed \
+  crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed
+
+# 3. 推送镜像
+docker push crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed
+```
+
+#### **📊 FC部署配置**
+- **函数名称**: fc-denoise-service
+- **运行时**: 自定义容器
+- **镜像地址**: `crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed`
+- **资源配置**: 2 vCPU, 4096MB内存
+- **触发器**: HTTP触发器(匿名访问)
+- **公网地址**: https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run
+
+#### **🚨 常见故障排除**
+
+##### **1. 降噪功能不生效**
+- **症状**: 输出音频与输入音频完全相同
+- **根本原因**: requirements-simple.txt 缺少AI模型依赖
+- **解决**: 使用 requirements-fixed.txt 重新构建镜像
+
+##### **2. HTTP触发器认证错误**
+- **症状**: `{"Code":"MissingRequiredHeader","Message":"required HTTP header Date was not specified"}`
+- **解决**: 触发器设置改为"匿名访问"而非"签名认证"
+
+##### **3. Docker构建网络超时**
+- **症状**: `SSL: UNEXPECTED_EOF_WHILE_READING` 或包管理器连接失败
+- **解决**: 使用代理设置 + `--network host` 标志
+
+#### **🧪 测试和验证**
+
+##### **1. 健康检查**
+```bash
+# 检查服务状态和模型加载情况
+curl -X GET "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/health" \
+  -H "Accept: application/json"
+
+# 预期响应（修复版本）:
+# {
+#   "status": "healthy",
+#   "service_ready": true,
+#   "model_loaded": false,  # 懒加载，首次请求时才加载
+#   "dependencies": {"torch": false, "onnxruntime": false, "model": false},
+#   "fc_environment": true
+# }
+```
+
+##### **2. 基础降噪测试**
+```bash
+# 简单降噪测试
+curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
+  -H "Content-Type: audio/wav" \
+  -H "X-Segment-Id: test-001" \
+  -H "X-Speaker: test-speaker" \
+  -H "X-Enable-Streaming: false" \
+  -H "X-Input-Format: binary" \
+  --data-binary @test-audio.wav \
+  --output denoised-output.wav \
+  --max-time 60
+```
+
+##### **3. 完整测试和性能监控**
+```bash
+# 带性能监控的完整测试
+curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
+  -H "Content-Type: audio/wav" \
+  -H "X-Segment-Id: performance-test-$(date +%s)" \
+  -H "X-Speaker: Speaker-A" \
+  -H "X-Enable-Streaming: false" \
+  -H "X-Input-Format: binary" \
+  --data-binary @"your-audio-file.wav" \
+  --output "denoised-$(date +%H%M%S).wav" \
+  --max-time 120 \
+  -w "\n📊 性能统计:\n状态码: %{http_code}\n总时间: %{time_total}s\n下载大小: %{size_download} bytes\n" \
+  -s -S
+```
+
+##### **4. 响应头验证**
+```bash
+# 获取详细的处理信息
+curl -s -D response-headers.txt -X POST \
+  "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
+  -H "Content-Type: audio/wav" \
+  -H "X-Segment-Id: header-validation" \
+  -H "X-Speaker: test-user" \
+  --data-binary @test-audio.wav \
+  --output /dev/null \
+  --max-time 60
+
+# 查看关键响应头
+grep -E "x-|X-|content-type|Content-Length" response-headers.txt
+
+# 预期成功响应头:
+# x-denoise-applied: true          ✅ 降噪已应用
+# x-processing-success: true       ✅ 处理成功
+# x-model-loaded: true            ✅ 模型已加载
+# x-processing-time: XX.XXX       ✅ 处理时间(秒)
+# Content-Length: XXXXX           ✅ 输出音频大小
+```
+
+##### **5. 音频质量对比**
+```bash
+# 对比原始音频和降噪后音频
+echo "📊 音频文件对比:"
+echo "原始音频:"
+file original-audio.wav && ls -lh original-audio.wav
+
+echo "降噪后音频:"
+file denoised-audio.wav && ls -lh denoised-audio.wav
+
+# 计算文件大小变化
+original_size=$(stat -c%s original-audio.wav)
+denoised_size=$(stat -c%s denoised-audio.wav)
+size_diff=$((denoised_size - original_size))
+echo "文件大小变化: $size_diff 字节"
+```
+
+##### **6. 批量测试脚本**
+```bash
+# 批量测试多个音频文件
+for audio_file in *.wav; do
+  echo "🎵 处理: $audio_file"
+  
+  curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
+    -H "Content-Type: audio/wav" \
+    -H "X-Segment-Id: batch-${audio_file%.*}" \
+    -H "X-Speaker: batch-test" \
+    --data-binary @"$audio_file" \
+    --output "denoised-${audio_file}" \
+    --max-time 120 \
+    -s -w "处理完成，耗时: %{time_total}s\n"
+    
+  echo "✅ $audio_file -> denoised-${audio_file}"
+done
+```
+
+##### **🎯 实际测试结果示例**
+```bash
+# 测试样例1: noisy_sample.wav (153K)
+# 处理时间: 23.5秒
+# 文件大小: 153K -> 147K (-3.8%)
+# 状态: x-denoise-applied: true
+
+# 测试样例2: sequence_0003_Speaker C.wav (248K)  
+# 处理时间: 22.6秒
+# 文件大小: 248K -> 248K (-0.06%)
+# 状态: x-denoise-applied: true
+```
+
+#### **🔄 版本历史**
+- **v1.0**: 初始版本(requirements-simple.txt) - 降噪不生效
+- **v1.1-fixed**: 修复版本(requirements-fixed.txt) - 包含完整AI依赖
+
+#### **📋 部署清单**
+- [ ] 配置本地代理环境(解决网络问题)
+- [ ] 使用 Dockerfile.minimal-fixed 构建镜像
+- [ ] 验证镜像包含完整AI依赖
+- [ ] 推送镜像到ACR
+- [ ] 在FC控制台创建函数并配置镜像
+- [ ] 设置HTTP触发器为匿名访问
+- [ ] 验证降噪功能正常工作
+
 ## 🔗 有用链接
 
 - **GitHub Actions**: [查看工作流状态](https://github.com/your-org/waveshift/actions)
 - **容器注册表**: [管理容器镜像](https://github.com/your-org/waveshift/pkgs/container/waveshift-ffmpeg-container)
 - **Cloudflare Dashboard**: [管理 Workers 和 R2](https://dash.cloudflare.com)
+- **阿里云FC控制台**: [函数计算管理](https://fc3.console.aliyun.com)
+- **阿里云ACR控制台**: [容器镜像服务](https://cr.console.aliyun.com)

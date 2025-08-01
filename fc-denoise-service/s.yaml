@@ -1,0 +1,89 @@
+# Serverless Devs 配置文件
+# 用于部署阿里云函数计算3.0自定义容器服务
+
+edition: 3.0.0          # Serverless Devs版本
+name: fc-denoise-app    # 应用名称
+access: default         # 访问凭证配置名称
+
+vars:
+  region: ap-southeast-1   # 🌏 阿里云区域 (新加坡，与ACR同区域)
+  functionName: fc-denoise-service
+
+resources:
+  fc-denoise-dev:       # 服务名称
+    component: fc3      # 使用FC 3.0组件
+    props:
+      region: ${vars.region}
+      
+      # 函数配置
+      function:
+        functionName: ${vars.functionName}
+        description: "ZipEnhancer音频降噪服务 - 基于深度学习的实时音频降噪"
+        
+        # 运行时配置
+        runtime: custom-container
+        
+        # 自定义容器配置
+        customContainerConfig:
+          # 🎯 容器镜像地址（用户的ACR仓库）
+          image: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.0
+          port: 9000
+          # 可选：容器启动命令覆盖
+          # command: ["python", "fc_denoise_server.py"]
+          # args: []
+        
+        # 🔧 资源配置（经过性能测试优化）
+        memorySize: 4096    # 4GB内存（ZipEnhancer模型需求）
+        cpu: 2.0           # 2 vCPU（相比CF Container提升4倍）
+        timeout: 300       # 5分钟超时（长音频处理）
+        
+        # 环境变量
+        environmentVariables:
+          PYTHONUNBUFFERED: "1"
+          FC_RUNTIME_VERSION: "3.0"
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+          ORT_NUM_THREADS: "2"
+          
+        # 🌐 网络配置
+        internetAccess: true
+        
+        # 📊 日志配置
+        logConfig:
+          project: fc-denoise-logs
+          logstore: function-logs
+          enableRequestMetrics: true
+          enableInstanceMetrics: true
+        
+        # 🚀 实例配置
+        instanceConcurrency: 1      # 单实例并发（降噪计算密集）
+        instanceType: e1           # 经济型实例
+        
+        # 性能优化配置
+        initializationTimeout: 60   # 初始化超时（模型加载时间）
+        
+      # HTTP触发器配置
+      triggers:
+        - name: http-trigger
+          type: http
+          config:
+            authType: anonymous     # 🔓 匿名访问（生产环境建议改为function）
+            methods:
+              - GET
+              - POST
+              - OPTIONS
+            # CORS配置
+            cors:
+              allowOrigin: "*"
+              allowMethods: 
+                - GET
+                - POST
+                - OPTIONS
+              allowHeaders:
+                - Content-Type
+                - X-Segment-Id
+                - X-Speaker
+                - X-Enable-Streaming
+                - X-Input-Format
+              maxAge: 3600
+
