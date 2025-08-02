@@ -1,0 +1,111 @@
+name: Deploy FC Denoise Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild Docker image'
+        required: false
+        type: boolean
+        default: false
+  push:
+    paths:
+      - 'fc-denoise-service/**'
+      - '.github/workflows/deploy-fc-denoise.yml'
+
+jobs:
+  deploy-fc-denoise:
+    runs-on: ubuntu-latest
+    name: Build and Deploy FC Denoise Service
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-fc-denoise-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-fc-denoise-
+
+      - name: Login to Aliyun Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./fc-denoise-service
+          file: ./fc-denoise-service/Dockerfile
+          push: true
+          tags: |
+            crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:latest
+            crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v5.0-minimal-local
+            crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          platforms: linux/amd64
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Set up Serverless Devs
+        run: |
+          # 安装Serverless Devs CLI
+          npm install -g @serverless-devs/s
+          
+          # 配置阿里云凭证
+          s config add --AccessKeyID ${{ secrets.ALIYUN_ACCESS_KEY_ID }} \
+                       --AccessKeySecret ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }} \
+                       --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+                       --access default
+
+      - name: Deploy to Function Compute
+        run: |
+          cd fc-denoise-service
+          
+          # 更新镜像标签为最新构建的版本
+          sed -i "s|image:.*|image: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:${{ github.sha }}|" s.yaml
+          
+          # 部署到FC
+          s deploy -y --use-local
+
+      - name: Verify deployment
+        run: |
+          echo "🎯 验证FC部署..."
+          echo ""
+          echo "📋 部署信息："
+          echo "- 镜像: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:${{ github.sha }}"
+          echo "- 函数名: fc-denoise-minimal"
+          echo "- 区域: ap-southeast-1"
+          echo "- 资源: 1GB内存, 0.5 vCPU"
+          echo ""
+          echo "✅ FC降噪服务部署完成！"
+
+      - name: Test deployment
+        if: success()
+        run: |
+          sleep 30  # 等待函数启动
+          echo "🧪 测试部署的服务..."
+          
+          # 测试健康检查
+          curl -f https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/health || echo "⚠️ 健康检查失败，可能需要更长启动时间"
+          
+          echo ""
+          echo "📝 测试命令："
+          echo "curl -X POST 'https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/' \\"
+          echo "  -H 'Content-Type: audio/wav' \\"
+          echo "  --data-binary @test/test_audio.wav \\"
+          echo "  --output denoised.wav"

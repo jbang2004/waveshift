@@ -1,27 +1,17 @@
-# FC降噪服务依赖 - 修复版本
-# 包含完整的AI模型依赖
+# ZipEnhancer最小依赖配置 - 修正版
+# 基于官方6行代码实现 + 代码全貌分析
 
-# FastAPI 服务框架
-fastapi==0.109.0
-uvicorn==0.25.0
-
-# 基础音频处理
-soundfile==0.12.1
-numpy==1.24.3
-
-# 深度学习依赖（FC环境CPU版本）
-# PyTorch CPU版本，减小镜像大小
+# PyTorch CPU优化版本 (减小镜像大小)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.0.1+cpu
-torchaudio==2.0.2+cpu
 
-# ONNX Runtime CPU版本
-onnxruntime==1.16.3
+# ModelScope核心框架 (内置音频处理)
+modelscope>=1.20.0
 
-# 音频处理相关
-librosa==0.10.1
-scipy==1.10.1
+# 音频I/O库 (soundfile代替torchaudio)
+soundfile==0.12.1
 
-# 其他可能需要的依赖
-requests==2.31.0
-typing-extensions>=4.8.0
+# 注释：移除不必要的依赖
+# ❌ torchaudio - 代码中完全未使用，soundfile已足够
+# ✅ numpy/packaging - ModelScope自动管理
+# ✅ typing-extensions - Python 3.10+内置
