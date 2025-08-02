@@ -33,6 +33,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-fc-denoise-
 
+      - name: Debug - Check secrets availability
+        run: |
+          echo "检查secrets是否配置..."
+          if [ -n "${{ secrets.ACR_USERNAME }}" ]; then
+            echo "✅ ACR_USERNAME is set"
+          else
+            echo "❌ ACR_USERNAME is NOT set"
+          fi
+          if [ -n "${{ secrets.ACR_PASSWORD }}" ]; then
+            echo "✅ ACR_PASSWORD is set"
+          else
+            echo "❌ ACR_PASSWORD is NOT set"
+          fi
+
       - name: Login to Aliyun Container Registry
         uses: docker/login-action@v3
         with:
