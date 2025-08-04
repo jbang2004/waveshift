@@ -67,3 +67,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# Ignore fc-denoise-service directory
+fc-denoise-service/
+
+# Process files
+server.pid

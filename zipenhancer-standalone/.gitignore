@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Audio outputs
+enhanced_audio.wav
+enhanced_*.wav
+*_clean.wav
+*_denoised.wav
+output.wav
+test_*.wav
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+temp_*
+tmp_*
