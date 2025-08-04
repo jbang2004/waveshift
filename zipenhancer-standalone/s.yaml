@@ -1,0 +1,147 @@
+# Serverless Devs 配置文件
+# 用于部署阿里云函数计算3.0 GPU降噪服务
+
+edition: 3.0.0          # Serverless Devs版本
+name: zipenhancer-gpu-app    # 应用名称
+access: default         # 访问凭证配置名称
+
+vars:
+  region: ap-southeast-1   # 🌏 阿里云区域 (新加坡，支持GPU)
+  functionName: zipenhancer-gpu
+  serviceName: audio-processing
+
+resources:
+  zipenhancer-gpu:   # 资源名称
+    component: fc3      # 使用FC 3.0组件
+    props:
+      region: ${vars.region}
+      
+      # 函数配置
+      function:
+        functionName: ${vars.functionName}
+        description: "ZipEnhancer GPU降噪服务 - 基于ONNX Runtime的高性能音频降噪"
+        handler: fc_handler.handler
+        
+        # 运行时配置
+        runtime: custom-container
+        
+        # 自定义容器配置
+        customContainerConfig:
+          # 🎯 容器镜像地址
+          image: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/zipenhancer-gpu:latest
+          port: 9000
+          
+          # ACR镜像凭证配置
+          acrRegistry:
+            id: crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com
+            
+        # 🖥️ GPU配置
+        gpuConfig:
+          gpuMemorySize: 4096      # 4GB GPU内存
+          gpuType: fc.gpu.tesla.1  # Tesla T4 GPU
+        
+        # 🔧 资源配置
+        memorySize: 8192    # 8GB内存（GPU模式需要更多内存）
+        cpu: 2              # 2 vCPU
+        diskSize: 512       # 512MB临时磁盘
+        timeout: 300        # 5分钟超时（处理长音频）
+        
+        # 环境变量
+        environmentVariables:
+          PYTHONUNBUFFERED: "1"
+          CUDA_VISIBLE_DEVICES: "0"
+          OMP_NUM_THREADS: "1"
+          # ONNX Runtime优化
+          ORT_TENSORRT_ENGINE_CACHE_ENABLE: "1"
+          ORT_TENSORRT_ENGINE_CACHE_PATH: "/tmp/tensorrt_cache"
+          
+        # 🌐 网络配置
+        internetAccess: true
+        
+        # 📊 日志配置
+        logConfig:
+          project: fc-zipenhancer-logs
+          logstore: function-logs
+          enableRequestMetrics: true
+          enableInstanceMetrics: true
+        
+        # 🚀 实例配置
+        instanceConcurrency: 1      # GPU实例并发数限制为1
+        instanceType: fc.gpu.tesla.1   # GPU实例类型
+        
+        # 🔥 生产环境配置
+        instanceLifecycleConfig:
+          initializer:              # 初始化函数
+            handler: fc_handler.initialize
+            timeout: 60             # 初始化超时60秒
+            
+        # 预留实例配置（可选，用于消除冷启动）
+        # provisionedConcurrencyConfig:
+        #   target: 1                 # 预留1个GPU实例
+        #   scheduledActions:         # 定时伸缩规则
+        #     - name: "business-hours"
+        #       schedule: "0 9 * * *"  # 每天9点扩容
+        #       target: 2
+        #     - name: "off-hours" 
+        #       schedule: "0 22 * * *" # 每天22点缩容
+        #       target: 1
+        
+      # HTTP触发器配置
+      triggers:
+        - name: http-trigger
+          type: http
+          config:
+            authType: anonymous     # 🔓 匿名访问（生产环境建议改为function）
+            methods:
+              - GET                 # 健康检查
+              - POST                # 音频处理
+              - OPTIONS             # CORS预检
+            
+            # 自定义域名（可选）
+            # customDomain:
+            #   domainName: denoise.example.com
+            #   protocol: HTTPS
+            #   certId: your-cert-id
+            #   routeConfig:
+            #     - path: /*
+            
+            # CORS配置
+            cors:
+              allowOrigin: "*"
+              allowMethods: 
+                - GET
+                - POST
+                - OPTIONS
+              allowHeaders:
+                - Content-Type
+                - X-Segment-Id
+                - X-Speaker
+                - X-Enable-Streaming
+                - X-Input-Format
+              exposeHeaders:
+                - X-Denoise-Applied
+                - X-Model
+                - X-Device
+                - X-Processing-Time
+              maxAge: 3600
+              
+      # 异步配置（可选，用于长时间处理）
+      # asyncInvokeConfig:
+      #   maxAsyncEventAgeInSeconds: 3600
+      #   maxAsyncRetryAttempts: 3
+      #   destinationConfig:
+      #     onSuccess:
+      #       destination: acs:fc:${vars.region}:${vars.accountId}:functions/${vars.functionName}/success
+      #     onFailure:
+      #       destination: acs:fc:${vars.region}:${vars.accountId}:functions/${vars.functionName}/failure
+
+# 自定义命令
+actions:
+  pre-deploy:
+    - run: echo "🚀 开始部署ZipEnhancer GPU降噪服务..."
+    - run: echo "📦 镜像地址：crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/zipenhancer-gpu:latest"
+  
+  post-deploy:
+    - run: echo "✅ 部署完成！"
+    - run: echo "🌐 访问地址：https://${vars.functionName}.${vars.region}.fcapp.run"
+    - run: echo "📝 健康检查：curl https://${vars.functionName}.${vars.region}.fcapp.run/health"

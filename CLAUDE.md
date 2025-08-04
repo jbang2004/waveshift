@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个媒体处理平台，包含五个主要组件：
+这是一个完整的媒体处理平台，包含六个主要组件：
 
 1. **waveshift-frontend**: Next.js 前端应用，提供用户界面和媒体处理工作流
 2. **waveshift-workflow**: 工作流编排服务，协调各个处理步骤
-3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Cloudflare Containers + Rust + FFMPEG
+3. **waveshift-ffmpeg-worker**: 音视频分离服务，使用 Cloudflare Workers + Containers + Rust + FFMPEG
 4. **waveshift-transcribe-worker**: 基于 Gemini API 的音频转录和翻译服务
-5. **waveshift-audio-segment-worker**: 音频切分服务，基于转录时间轴智能分割音频片段 (新增)
+5. **waveshift-audio-segment-worker**: 音频切分服务，基于转录时间轴智能分割音频片段
+6. **zipenhancer-standalone**: GPU加速音频降噪服务，支持本地Docker和阿里云FC部署
 
 ## 开发命令
 
@@ -19,8 +20,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 🚀 推荐部署方式
 npm run deploy:smart     # 智能部署 - 只部署有更改的服务
 npm run deploy:docker    # GitHub Actions Docker 部署 - 适用于容器服务
-
-# 其他部署选项  
 npm run deploy:all       # 完整部署 - 部署所有服务
 
 # 开发模式
@@ -32,1084 +31,248 @@ npm run dev:transcribe   # 只启动转录服务
 npm run dev:audio        # 只启动音频切分服务
 ```
 
-### 前端应用 (waveshift-frontend)
+### 各服务快速命令
 ```bash
-cd waveshift-frontend
+# 前端应用
+cd waveshift-frontend && npm run dev && npm run deploy
 
-# 本地开发
-npm run dev              # 启动开发服务器 (http://localhost:3001)
+# 工作流服务  
+cd waveshift-workflow && npm run dev && npm run deploy
 
-# 构建和部署 - 重要：使用正确的OpenNext构建流程
-npm run deploy           # 执行 opennextjs-cloudflare build && opennextjs-cloudflare deploy
+# AI转录服务
+cd waveshift-transcribe-worker && npm run dev && npm run deploy && wrangler secret put GEMINI_API_KEY
 
-# 数据库管理
-npm run db:generate      # 生成数据库迁移
-npm run db:migrate       # 应用数据库迁移
-npm run db:studio        # 打开数据库管理界面
+# 音视频分离 (Container)
+cd waveshift-ffmpeg-worker && npm run dev && npm run deploy
 
-# 类型检查和代码质量
-npm run type-check       # TypeScript 类型检查
-npm run lint             # ESLint 代码检查
+# 音频切分 (Container)
+cd waveshift-audio-segment-worker && npm run dev && npm run deploy
+
+# GPU降噪服务
+cd zipenhancer-standalone && docker build -t zipenhancer:latest . && ./deploy-to-fc.sh
 ```
 
-### 工作流服务 (waveshift-workflow)
+## 项目架构
+
+### 🎯 核心技术栈
+- **Frontend**: Next.js + OpenNext + Cloudflare Workers + D1 Database
+- **Workflow**: TypeScript + Cloudflare Workers + Service Bindings
+- **AI转录**: TypeScript + Cloudflare Workers + Google Gemini API
+- **音视频处理**: TypeScript Workers + Rust Containers + FFMPEG + R2 Storage
+- **GPU降噪**: Python + ONNX Runtime + PyTorch + 阿里云FC/Docker
+
+### 🔄 服务依赖关系
+```
+zipenhancer-standalone (独立服务)
+    
+waveshift-frontend
+    ↓ Service Binding
+waveshift-workflow
+    ↓ Service Bindings
+┌─ waveshift-ffmpeg-worker      (音视频分离)
+├─ waveshift-transcribe-worker  (AI转录)  
+└─ waveshift-audio-segment-worker (音频切分)
+```
+
+### 🗂️ 关键组件
+- **waveshift-workflow/src/sep-trans.ts**: 主工作流，协调完整处理流程
+- **waveshift-audio-segment-worker/container/src/main.rs**: 音频切分核心逻辑
+- **zipenhancer-standalone/zipenhancer.py**: GPU降噪核心算法
+- **waveshift-frontend/app/api/**: Next.js API路由和数据库操作
+
+## 技术配置
+
+### 环境变量配置
 ```bash
-cd waveshift-workflow
+# 全局必需
+CLOUDFLARE_API_TOKEN=your-api-token
+CLOUDFLARE_ACCOUNT_ID=your-account-id
 
-# 本地开发
-npm run dev              # 启动开发服务器 (http://localhost:8787)
-
-# 构建和部署
-npm run build            # TypeScript 编译
-npm run deploy           # 部署到 Cloudflare Workers
+# 服务特定
+GEMINI_API_KEY=your-gemini-key         # 转录服务
+JWT_SECRET=your-jwt-secret             # 前端认证
+R2_PUBLIC_DOMAIN=pub-domain.r2.dev     # R2存储
 ```
 
-### 音视频处理服务 (waveshift-ffmpeg-worker) ⚠️ 需要 Docker
-```bash
-cd waveshift-ffmpeg-worker
-
-# 本地开发 (需要 Docker)
-# 终端1: 构建并运行容器
-docker build -t ffmpeg-container .
-docker run -p 8080:8080 ffmpeg-container
-
-# 终端2: 运行 Cloudflare Worker
-npm run dev              # 启动开发服务器 (http://localhost:8787)
-
-# 🚀 推荐部署方式：使用 GitHub Actions Container 部署
-# 从根目录运行：
-npm run deploy:docker    # 触发 GitHub Actions Container 部署 (使用本地 Dockerfile)
-
-# 本地部署 (需要本地 Docker 环境)
-npm run deploy           # 构建容器并部署 Worker
-```
-
-### AI 转录服务 (waveshift-transcribe-worker)
-```bash
-cd waveshift-transcribe-worker
-
-# 本地开发
-npm run dev              # 启动开发服务器 (http://localhost:8787)
-
-# 构建和部署
-npm run build            # TypeScript 编译
-npm run deploy           # 部署到 Cloudflare Workers
-
-# 配置 API 密钥
-wrangler secret put GEMINI_API_KEY
-```
-
-### 音频切分服务 (waveshift-audio-segment-worker) ⚠️ 新增
-```bash
-cd waveshift-audio-segment-worker
-
-# 本地开发 (需要 Docker)
-# 终端1: 构建并运行容器
-docker build -t audio-segment-container .
-docker run -p 8080:8080 audio-segment-container
-
-# 终端2: 运行 Cloudflare Worker
-npm run dev              # 启动开发服务器 (http://localhost:8787)
-
-# 🚀 推荐部署方式：使用 GitHub Actions Container 部署
-# 从根目录运行：
-npm run deploy:audio     # 部署音频切分服务
-
-# 本地部署 (需要本地 Docker 环境)
-npm run deploy           # 构建容器并部署 Worker
-
-# 配置环境变量
-# GAP_DURATION_MS=500            # 句子间gap静音时长
-# MAX_DURATION_MS=12000          # 最大片段时长（包含gap）
-# MIN_DURATION_MS=1000           # 最小保留时长
-# GAP_THRESHOLD_MULTIPLIER=3     # 间隔检测倍数
-```
-
-## 架构说明
-
-### 音频切分服务架构 ⭐ **新增功能**
-- **技术栈**: TypeScript Worker + Rust 容器 + FFMPEG + Cloudflare R2
-- **核心功能**: 基于转录时间轴智能分割音频片段，生成独立的音频文件
-- **流式处理**: 实时处理转录数据，避免重复查询数据库
-- **智能合并**: 根据说话人、时间间隔、片段长度自动合并短句
-- **参数化配置**: 通过环境变量灵活控制切分策略
-- **请求流程**:
-  1. Workflow 提供音频文件和转录数据
-  2. Worker 通过 Durable Object 转发请求到 Rust 容器  
-  3. 容器基于时间轴使用 FFMPEG 切分音频
-  4. 切分后的文件上传到 R2 存储
-  5. 返回切分结果和文件 URL 映射
-- **切分策略**:
-  - **Gap静音填充**: 在句子间隙填充静音，确保播放连贯性
-  - **最大时长限制**: 防止单个片段过长影响播放体验  
-  - **最小时长过滤**: 过滤掉过短的孤立片段，保留连续对话
-  - **说话人连续性**: 相同说话人的连续语句智能合并
-
-#### 🎯 **音频切分的核心逻辑** ⭐ **已优化**
-
-**核心设计原则**：
-1. **说话人隔离原则** - 任何说话人切换都必须强制结束当前累积器，绝对不允许跨不同说话人共享音频片段
-2. **批次连续性原则** - 相同说话人在不同批次中的片段智能合并，避免产生碎片化音频
-3. **智能复用机制** - 达到MAX时长的音频片段可被同说话人后续句子复用，提高音频利用率
-
-**✅ 优化后的处理逻辑**：
-```
-场景示例: 批次1[A1,A2,B3,A4], 批次2[A5,A6]
-
-优化后处理流程：
-1. A1-A2累积 → B3说话人切换强制结束A1-A2并生成音频
-2. B3独立处理并生成音频
-3. A4开始新累积器，批次结束时保存到活跃映射(不生成音频)
-4. A5-A6延续A4累积器，达到合适长度后生成音频
-5. 转录结束时处理所有剩余累积器
-
-最终结果：A1-A2(音频1), B3(音频2), A4-A5-A6(音频3) ✅
-```
-
-**🚀 关键优化实现**：
-- **删除批次结束MIN检查**: 批次边界不再强制音频生成，只保存累积器状态
-- **统一说话人切换逻辑**: 批次内和批次间使用相同的处理机制，消除边界情况
-- **预处理不兼容累积器**: 批次开始时主动清理所有与当前批次不匹配的累积器
-- **跨批次状态保持**: `activeSpeakerAccumulators` 映射维护说话人累积器的连续性
-- **转录结束强制处理**: `finalizeAllRemainingAccumulators()` 处理所有剩余累积器
-
-**🔧 核心代码逻辑**：
-```typescript
-// ✅ 统一预处理：批次开始时清理不兼容累积器
-for (const [speaker, accumulator] of this.activeSpeakerAccumulators) {
-  if (speaker !== firstSpeaker) {
-    // 使用统一的说话人切换处理逻辑
-    this.finalizeAccumulator(accumulator, accumulators);
-    this.activeSpeakerAccumulators.delete(speaker);
-  }
-}
-
-// ✅ 批次结束：继续累积而非强制结束
-if (currentAccumulator.state === AccumulatorState.ACCUMULATING) {
-  this.activeSpeakerAccumulators.set(currentAccumulator.speaker, currentAccumulator);
-}
-
-// ✅ 转录结束：强制处理剩余累积器
-finalizeAllRemainingAccumulators(): StreamingAccumulator[] {
-  // 对所有ACCUMULATING状态累积器进行MIN检查和最终处理
+### R2存储配置
+```json
+{
+  "AllowedHeaders": ["content-type", "content-length", "authorization", "x-amz-date", "x-amz-content-sha256"],
+  "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
+  "AllowedOrigins": ["https://your-frontend.workers.dev", "http://localhost:3001"],
+  "ExposeHeaders": ["ETag"],
+  "MaxAgeSeconds": 3600
 }
 ```
 
-**📊 技术优势实现**：
-- ✅ **说话人隔离**: 严格防止跨不同说话人音频复用，确保音频连贯性
-- ✅ **批次连续性**: 完美解决同说话人跨批次的片段合并问题  
-- ✅ **逻辑统一**: 批次内和批次间使用相同的说话人切换处理机制，消除边界情况
-- ✅ **智能复用**: 达到MAX的音频可被同说话人后续句子复用
-- ✅ **实时处理**: 流式D1轮询 + 跨批次状态保持 + 转录结束处理
-- ✅ **预防性处理**: 批次开始时主动清理不兼容状态，避免累积器被困问题
+### 性能参数
+| 服务 | 处理能力 | 资源配置 | 并发限制 |
+|------|---------|---------|---------|
+| Gemini转录 | < 100MB文件 | CPU时间限制 | MAX_CONCURRENT_REQUESTS |
+| GPU降噪 | 实时4.5x处理 | Tesla T4 4GB | 单实例 |
+| 音频切分 | 流式处理 | 标准容器 | 3实例 |
+| 音视频分离| 100MB限制 | Alpine容器 | 3实例 |
 
-### Gemini 转录服务架构
-- **技术栈**: TypeScript + Cloudflare Workers + Google Gemini API
-- **核心功能**: 音频/视频文件转录和多语言翻译
-- **流式处理**: 支持长时间音频处理，避免超时问题
-- **文件格式**: 支持 MP3, WAV, M4A, FLAC, AAC, OGG, WebM, MP4, MOV
-- **API 端点**:
-  - `POST /transcribe`: 转录音频/视频文件
-  - `GET /health`: 健康检查
-  - `GET /`: API 文档
+## 部署指南
 
-### Wifski 音视频分离架构
-- **技术栈**: TypeScript Worker + Rust 容器 + FFMPEG + Cloudflare R2
-- **请求流程**:
-  1. 用户上传视频到 `/` (Worker 提供 `public/index.html`)
-  2. 前端 POST 到 `/separate` 端点
-  3. Worker 通过 Durable Object 转发请求到 Rust 容器
-  4. 容器使用 FFMPEG 分离音视频
-  5. 处理后的文件上传到 R2 存储
-  6. 返回 R2 URL 供前端播放和下载
+### 🚀 推荐部署方式
 
-### 关键组件
-- **waveshift-audio-segment-worker/src/index.ts**: 音频切分服务 Worker 入口点 (新增)
-- **waveshift-audio-segment-worker/container/src/main.rs**: Rust 音频切分服务器 (新增)
-- **waveshift-transcribe-worker/src/index.ts**: 转录服务 Worker 入口点
-- **waveshift-transcribe-worker/src/gemini-client.ts**: Gemini API 客户端，支持流式响应
-- **waveshift-ffmpeg-worker/src/index.ts**: FFmpeg Worker 入口点，处理路由和容器管理
-- **waveshift-ffmpeg-worker/container/src/main.rs**: Rust 服务器，执行 FFMPEG 命令
-- **waveshift-workflow/src/utils/transcription-merger.ts**: 转录片段实时合并和标记逻辑
-- **waveshift-workflow/src/utils/database.ts**: 数据库操作，包含 is_first/is_last 标记函数
-- **waveshift-workflow/src/sep-trans.ts**: 主工作流，协调音视频分离、转录、音频切分的完整流程
-
-## 技术细节
-
-### Gemini 转录服务
-- **流式响应**: 使用 `generateContentStream()` 替代 `generateContent()` 避免超时
-- **CPU 时间限制**: 免费计划 10ms，付费计划可配置到 5 分钟 (300,000ms)
-- **文件大小限制**: 最大 100MB
-- **并发控制**: 通过 `MAX_CONCURRENT_REQUESTS` 环境变量配置
-- **支持的翻译**: 中英文转录和翻译，支持普通和古典翻译风格
-
-### 转录片段标记系统 ⭐ **新增功能**
-- **实时合并**: 根据说话人、时间间隔、片段长度智能合并转录片段
-- **开始标记**: `is_first=1` 标记音频的第一个有效语音片段
-- **结束标记**: `is_last=1` 使用延迟更新策略确保准确标记最后一个片段
-- **标记逻辑**: 
-  1. 存储阶段：所有片段 `is_last=0`
-  2. 完成阶段：SQL查询最大序号并更新 `is_last=1`
-  3. 确保每个转录只有一个开始和一个结束片段
-- **应用场景**: 视频预览、摘要生成、循环播放、分段导出
-
-### Wifski 音视频分离
-- **FFMPEG 命令**:
-  - 无声视频: `ffmpeg -i input.mp4 -an -c:v copy silent_video.mp4`
-  - 音频提取: `ffmpeg -i input.mp4 -vn -c:a copy audio.aac`
-- **处理选项**: 支持按时间裁剪 (start_time/end_time)
-- **输出格式**: MP4 (无声视频) 和 MP3 (音频)
-- **容器管理**: 5分钟不活动后自动休眠，最多 3 个容器实例
-
-### R2 存储集成
-- **文件结构**: `videos/{uuid}-silent.mp4` 和 `audio/{uuid}-audio.aac`
-- **公共访问**: 通过公共 R2 URL 提供文件访问
-- **所需环境变量**:
-  - `CLOUDFLARE_ACCOUNT_ID`
-  - `R2_ACCESS_KEY_ID`
-  - `R2_SECRET_ACCESS_KEY`
-  - `R2_BUCKET_NAME`
-  - `R2_PUBLIC_DOMAIN`
-
-## 性能和限制
-
-### Gemini 转录服务文件大小建议
-| 文件大小 | 处理时间 | 成功率 | 计划建议 |
-|---------|---------|--------|---------|
-| < 1MB | < 10秒 | 99% | 免费/付费计划均支持 |
-| 1-5MB | 10-30秒 | 90% | 建议付费计划 |
-| 5-10MB | 30-60秒 | 50% | 需要付费计划 |
-| > 10MB | > 60秒 | 10% | 建议分段处理 |
-
-### Wifski 处理限制
-- **最大上传**: 100MB (前端强制限制)
-- **临时文件**: 上传到 R2 后立即清理
-- **安全措施**: 文件名清理防止路径注入攻击
-
-## 故障排除
-
-### 前端应用常见问题
-
-1. **500内部服务器错误 (API路由失败)**
-   - **症状**: 文件上传失败，返回 `{"error":"Failed to create media task"}`
-   - **根本原因**: 通常是OpenNext构建流程错误或数据库表缺失
-   - **解决方案**: 
-     ```bash
-     # 1. 确认使用正确的构建命令
-     npm run deploy  # 应该执行 opennextjs-cloudflare build
-     
-     # 2. 初始化数据库表
-     curl -X GET https://your-worker.workers.dev/api/setup
-     curl -X POST https://your-worker.workers.dev/api/init-media-tables
-     
-     # 3. 检查部署是否成功
-     ls -la .open-next/  # 应该存在且包含最新代码
-     ```
-   - **详细排查**: 参见 `frontend/TROUBLESHOOTING.md`
-
-2. **构建失败或代码修改未生效**
-   - **原因**: 使用了 `next build` 而非 `opennextjs-cloudflare build`
-   - **解决**: 清理缓存并重新构建
-     ```bash
-     rm -rf .next .open-next
-     npm run deploy
-     ```
-
-3. **数据库外键约束失败**
-   - **错误**: `FOREIGN KEY constraint failed: SQLITE_CONSTRAINT`
-   - **原因**: 缺少必要的数据库表或用户数据
-   - **解决**: 运行数据库初始化脚本
-
-4. **JWT认证失败**
-   - **症状**: 有cookie但仍返回401
-   - **原因**: JWT_SECRET变更导致现有token失效
-   - **解决**: 用户重新登录
-
-### Gemini 转录服务常见错误
-1. **`curl: (56) Failure when receiving data from the peer`**
-   - 原因: CPU 时间限制或网络超时
-   - 解决: 使用更小文件或升级到付费计划
-
-2. **API 密钥错误**
-   ```bash
-   wrangler secret put GEMINI_API_KEY
-   ```
-
-3. **文件格式不支持**
-   - 检查 MIME 类型是否在支持列表中
-
-### FFmpeg Worker 容器部署常见问题 🆘
-
-#### ❌ **容器启动崩溃问题** (2025-07 已解决)
-- **症状**: 
-  ```
-  Error checking 8080: The container is not running, consider calling start()
-  ❌ FFmpeg Container error: Error: Container crashed while checking for ports, 
-  did you setup the entrypoint correctly?
-  ```
-- **根本原因**:
-  1. **镜像选择不当**: `jrottenberg/ffmpeg:7.1-ubuntu2404` Ubuntu镜像过重 (~2GB)
-  2. **启动缓慢**: Ubuntu基础镜像在云环境启动时间长
-  3. **配置误删**: 错误移除了有效的 `instance_type` 字段
-
-- **✅ 解决方案**:
-  ```json
-  // 1. 切换到轻量级Alpine镜像
-  "containers": [{
-    "name": "waveshift-ffmpeg-container", 
-    "class_name": "FFmpegContainer",
-    "image": "./Dockerfile",
-    "instance_type": "standard",  // ✅ 有效字段，不要删除
-    "max_instances": 3
-  }]
-  ```
-  
-  ```dockerfile
-  # 2. 优化Dockerfile使用Alpine FFmpeg
-  FROM rust:alpine AS builder
-  RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
-  RUN rustup target add x86_64-unknown-linux-musl
-  RUN cargo build --release --target x86_64-unknown-linux-musl --locked
-  
-  FROM alfg/ffmpeg  # ✅ Alpine Linux + FFmpeg (仅106MB)
-  RUN apk add --no-cache ca-certificates
-  COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/separate-container ./
-  ```
-
-- **关键改进效果**:
-  - **镜像大小**: ~2GB → ~106MB (减少70%)
-  - **启动时间**: ~30秒 → ~2-3秒
-  - **稳定性**: Alpine云原生设计，更适合容器环境
-  - **编译兼容**: musl静态链接确保Alpine兼容性
-
-#### ❌ **VALIDATE_INPUT 错误** (已解决)
-- **症状**: 部署时报错 `Error creating application due to a misconfiguration - VALIDATE_INPUT`
-- **根本原因**: 
-  1. 使用外部镜像注册表 (如 GHCR)
-  2. 配置格式不符合 Cloudflare Container 标准
-  3. 使用了不支持的配置字段
-
-- **✅ 解决方案**:
-  ```json
-  // ❌ 错误配置
-  "containers": [{
-    "image": "ghcr.io/user/image:latest",  // 外部镜像
-    "instance_type": "standard",           // 不支持
-    "autoscaling": {...}                   // 不支持
-  }]
-  
-  // ✅ 正确配置  
-  "containers": [{
-    "name": "waveshift-ffmpeg-container",
-    "class_name": "FFmpegContainer",
-    "image": "./Dockerfile",               // 本地 Dockerfile
-    "max_instances": 3                     // 标准字段
-  }]
-  ```
-
-- **关键要点**:
-  - ✅ 必须使用本地 Dockerfile: `"image": "./Dockerfile"`
-  - ✅ Cloudflare 会自动构建和部署容器
-  - ✅ 避免外部镜像注册表 (GHCR, Docker Hub 等)
-  - ✅ 只使用官方支持的配置字段
-  - ✅ 确保 `class_name` 与 Durable Object 类名匹配
-
-#### 🔧 **Container 配置最佳实践**
-1. **wrangler.jsonc 标准格式**:
-   ```json
-   {
-     "containers": [{
-       "name": "service-container",
-       "class_name": "ServiceContainer", 
-       "image": "./Dockerfile",
-       "max_instances": 3
-     }],
-     "durable_objects": {
-       "bindings": [{
-         "name": "CONTAINER_BINDING",
-         "class_name": "ServiceContainer"
-       }]
-     },
-     "migrations": [{
-       "tag": "v1",
-       "new_sqlite_classes": ["ServiceContainer"]
-     }]
-   }
-   ```
-
-2. **Worker 代码结构**:
-   ```typescript
-   import { Container } from '@cloudflare/containers';
-   
-   export class ServiceContainer extends Container {
-     override defaultPort = 8080;
-     override sleepAfter = '5m';
-   }
-   ```
-
-3. **GitHub Actions 部署**:
-   - 移除 Docker 构建步骤
-   - 直接使用 `wrangler deploy`
-   - Cloudflare 会处理容器构建
-
-### Service Binding 故障排除 🚨 **重要**
-
-#### ❌ **"force-delete" 错误 (2025-07 已解决)**
-- **症状**: 
-  ```javascript
-  {error: 'Failed to process media task', details: 'this worker has been deleted via a force-delete'}
-  ```
-- **根本原因**:
-  1. **Service Binding 缓存失效**: Worker删除/重建后，Service Binding 引用过期
-  2. **级联依赖失败**: 一个服务删除导致整个链条的Service Binding失效
-  3. **缓存污染**: Cloudflare 边缘缓存保存了已删除Worker的引用
-
-- **✅ 解决方案 - 按序重新部署**:
-  ```bash
-  # 🔄 必须按依赖顺序重新部署所有相关服务
-  
-  # 1. 重新部署基础服务
-  cd waveshift-audio-segment-worker && npm run deploy
-  cd ../waveshift-ffmpeg-worker && npm run deploy
-  cd ../waveshift-transcribe-worker && npm run deploy
-  
-  # 2. 重新部署依赖服务 (刷新Service Binding)
-  cd ../waveshift-workflow && npm run deploy
-  
-  # 3. 重新部署前端 (刷新对workflow的binding)
-  cd ../waveshift-frontend && npm run deploy
-  ```
-
-- **⚠️ 关键原理**:
-  - **Service Binding 机制**: 每个Worker在部署时会缓存其绑定服务的引用
-  - **缓存失效**: 当被绑定的服务删除时，缓存引用变为无效
-  - **手动刷新**: 只有重新部署依赖方才能刷新Service Binding缓存
-  - **边缘一致性**: 需要等待Cloudflare全球边缘节点同步(~30秒)
-
-#### 🔧 **Service Binding 最佳实践**
-1. **避免删除Worker**: 
-   - ✅ 使用 `wrangler deploy` 更新现有Worker
-   - ❌ 避免 `wrangler delete` 后重新创建
-   - ✅ 迁移DO时使用新的migration tag而非删除
-
-2. **依赖顺序部署**:
-   ```bash
-   # 正确的部署顺序 (从底层到顶层)
-   audio-segment → ffmpeg → transcribe → workflow → frontend
-   ```
-
-3. **故障检测命令**:
-   ```bash
-   # 检查Service Binding状态
-   wrangler tail waveshift-workflow --format pretty
-   
-   # 查看具体错误信息
-   curl -X POST "https://waveshift-frontend.xxx.workers.dev/api/workflow/test/process" \
-        -H "Content-Type: application/json" \
-        -d '{"targetLanguage":"chinese"}'
-   ```
-
-4. **预防措施**:
-   - 📋 使用GitHub Actions统一部署，避免手动删除
-   - 🔄 定期验证Service Binding连通性
-   - 📊 监控Worker间调用的成功率和延迟
-
-### 数据库字段同步问题 🔄
-
-#### ❌ **D1与项目字段名不匹配错误**
-- **症状**: 
-  ```sql
-  Error: no such column: original_text
-  Error: no such column: translated_text
-  ```
-- **根本原因**: D1数据库使用`original`/`translation`，项目代码使用`original_text`/`translated_text`
-
-- **✅ 解决方案 - 统一字段名**:
-  ```bash
-  # 1. 确认D1实际字段结构
-  wrangler d1 execute waveshift-database --command "PRAGMA table_info(transcription_segments);"
-  
-  # 2. 更新项目代码字段名
-  # frontend/db/schema-media.ts
-  original: text('original').notNull(),
-  translation: text('translation').notNull(),
-  
-  # 3. 更新所有SQL查询
-  # workflow/src/utils/database.ts
-  INSERT INTO transcription_segments (..., original, translation, ...)
-  ```
-
-- **检查清单**:
-  - [ ] `waveshift-frontend/db/schema-media.ts`: Drizzle schema定义
-  - [ ] `waveshift-frontend/app/api/setup/route.ts`: 建表SQL语句  
-  - [ ] `waveshift-workflow/src/utils/database.ts`: 插入/查询SQL
-  - [ ] `waveshift-workflow/src/sep-trans.ts`: 数据处理逻辑
-
-### Durable Object 迁移问题 🔄
-
-#### ❌ **"Cannot apply new-sqlite-class migration" 错误**
-- **症状**:
-  ```
-  Cannot apply new-sqlite-class migration to class 'AudioSegmentContainer' 
-  that is already depended on by existing Durable Objects
-  ```
-- **根本原因**: DO命名空间已存在，无法应用新的SQLite类迁移
-
-- **✅ 解决方案 - 增量迁移**:
-  ```json
-  // wrangler.jsonc - 使用新的migration tag
-  "migrations": [{
-    "tag": "v10",  // 递增版本号
-    "new_sqlite_classes": ["AudioSegmentContainer"]
-  }]
-  ```
-
-- **迁移历史跟踪**:
-  ```bash
-  # 查看当前迁移状态
-  wrangler d1 migrations list waveshift-database
-  
-  # 查看DO命名空间
-  wrangler durable-objects namespace list
-  ```
-
-### Wifski 常见问题
-1. **容器启动失败**
-   - 确保 Docker 运行正常
-   - 检查端口 8080 是否可用
-
-2. **R2 上传失败**
-   - 验证所有 R2 相关环境变量
-   - 检查 Cloudflare 账户权限
-
-## 🚀 部署配置指南
-
-### 部署方式优先级
-
-#### **1. GitHub Actions 部署 (推荐)**
+#### 1. GitHub Actions自动部署
 ```bash
-# 🚀 最简单方法：直接推送代码触发自动部署
+# 推送代码自动触发
 git add . && git commit -m "部署更新" && git push
 
-# 或手动触发特定工作流
-npm run deploy:docker              # FFmpeg Worker (容器服务)
-gh workflow run "Deploy All WaveShift Services"  # 所有服务
-```
-
-#### **2. 本地智能部署**
-```bash
-# 只部署有更改的服务
-npm run deploy:smart
-
-# 强制部署所有服务
-npm run deploy:smart -- --all
-```
-
-#### **3. 单独服务部署**
-```bash
-npm run deploy:frontend     # 前端应用
-npm run deploy:workflow     # 工作流服务
-npm run deploy:ffmpeg       # FFmpeg Worker (本地部署)
-npm run deploy:transcribe   # 转录服务
-npm run deploy:audio        # 音频切分服务 (本地部署)
-
-# Container服务推荐使用GitHub Actions部署:
-# 手动触发 (推荐):
-gh workflow run "Deploy FFmpeg Worker (Alpine Container)"
+# 手动触发特定服务
+gh workflow run "Deploy FFmpeg Worker (Alpine Container)" 
 gh workflow run "Deploy Audio Segment Worker (Container)"
 ```
 
-### ⚠️ 部署顺序 (必须按序执行)
-1. **waveshift-audio-segment-worker** - 音频切分服务 (新增)
-2. **waveshift-ffmpeg-worker** - 音视频分离服务  
-3. **waveshift-transcribe-worker** - AI转录服务
-4. **waveshift-workflow** - 工作流编排服务 (依赖上述三个服务)
-5. **waveshift-frontend** - 前端应用 (依赖工作流服务)
-
-**🔄 Service Binding 依赖关系**:
-```
-audio-segment ←── workflow ←── frontend
-ffmpeg        ←──     ↑
-transcribe    ←──     ↑
-```
-
-**重要**: 如果任一基础服务(1-3)被删除/重建，必须按序重新部署所有依赖服务以刷新Service Binding缓存。
-
-### 环境变量配置
-确保设置以下环境变量或GitHub Secrets：
+#### 2. 本地智能部署
 ```bash
-CLOUDFLARE_API_TOKEN=your-api-token
-CLOUDFLARE_ACCOUNT_ID=your-account-id
-GEMINI_API_KEY=your-gemini-key
+npm run deploy:smart                   # 增量部署
+npm run deploy:smart -- --all          # 全量部署
 ```
 
-### R2 存储配置
+### 🐳 Docker网络解决方案 ⭐ **新增**
 
-#### **CORS 策略配置** (必需 - 支持预签名URL)
-在 Cloudflare Dashboard → R2 → waveshift-media → Settings → CORS policy：
-```json
-[{
-  "AllowedHeaders": [
-    "content-type", "content-length", "authorization",
-    "x-amz-date", "x-amz-content-sha256"
-  ],
-  "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
-  "AllowedOrigins": [
-    "https://waveshift-frontend.jbang20042004.workers.dev",
-    "http://localhost:3001",
-    "http://localhost:3000"
-  ],
-  "ExposeHeaders": ["ETag"],
-  "MaxAgeSeconds": 3600
-}]
-```
-
-#### **公共访问配置**
-1. **启用R2 Public Bucket**：
-   - Cloudflare Dashboard → R2 → waveshift-media → Settings → Public access → Allow Access
-   - 记录公共URL: `https://pub-waveshift-media.r2.dev`
-
-2. **更新环境变量**：
-   ```bash
-   # 在 wrangler.jsonc 中配置
-   "R2_PUBLIC_DOMAIN": "pub-waveshift-media.r2.dev"
-   ```
-
-#### **CORS 常见错误解决**
-- **"No 'Access-Control-Allow-Origin' header"**: 检查 AllowedOrigins 配置
-- **"Request header content-type is not allowed"**: 确保 AllowedHeaders 包含 "content-type"
-- **403 Forbidden**: 等待CORS规则生效(30秒)或检查预签名URL
-
-### 部署验证
+#### zipenhancer-standalone 构建和部署
 ```bash
-# 检查工作流状态
-gh run list --limit 5
+# 1. 构建镜像 (解决网络问题)
+docker build --network=host \
+  --build-arg http_proxy=$http_proxy \
+  --build-arg https_proxy=$https_proxy \
+  -f Dockerfile.fc -t zipenhancer-gpu:latest .
 
-# 测试服务健康状态
-curl https://waveshift-ffmpeg-worker.你的账户.workers.dev/health
-
-# 测试R2访问
-curl -I https://pub-waveshift-media.r2.dev/test-file.txt
-```
-
-### 🚀 GitHub Actions Container 部署 (推荐)
-适用于 **所有Container服务**：waveshift-ffmpeg-worker, waveshift-audio-segment-worker
-
-#### **🎯 手动触发部署** (推荐方式)
-```bash
-# 手动触发FFmpeg Container部署
-gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=false
-
-# 手动触发Audio Segment Container部署  
-gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=false
-
-# 强制重建镜像
-gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=true
-gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=true
-```
-
-#### **🔄 自动触发部署**
-```bash
-# 修改相关文件后git push会自动触发
-git add waveshift-ffmpeg-worker/
-git commit -m "更新FFmpeg Container"
-git push  # 自动触发FFmpeg部署
-
-git add waveshift-audio-segment-worker/
-git commit -m "更新Audio Segment Container" 
-git push  # 自动触发Audio Segment部署
-```
-
-**优势**：
-- ✅ ~~自动 Docker 构建和缓存~~ → **Cloudflare 自动构建容器**
-- ✅ ~~使用 GitHub 容器注册表~~ → **使用本地 Dockerfile**  
-- ✅ 构建时测试和验证
-- ✅ 支持强制重建选项
-- ✅ 无需本地 Docker 环境
-- ✅ **简化的部署流程** - 直接 `wrangler deploy`
-
-**GitHub Actions 工作流**：
-- `deploy-ffmpeg-docker.yml`: FFmpeg Worker Container 部署 (Rust + Alpine)
-- `deploy-audio-segment.yml`: Audio Segment Worker Container 部署 (Python + FastAPI)
-- 两者都支持手动触发和自动触发，配置完全一致
-
-**⚠️ 重要变更 (2025-07)**：
-- 不再构建和推送到外部镜像注册表
-- Cloudflare 直接使用项目中的 Dockerfile 构建容器
-- ✅ `instance_type` **是有效字段** (`dev`/`basic`/`standard`)
-- 推荐使用 **Alpine Linux 镜像** 而非 Ubuntu (启动更快，体积更小)
-
-**🔍 容器故障排查流程**：
-```bash
-# 1. 检查容器日志
-wrangler tail waveshift-ffmpeg-worker --format pretty
-wrangler tail waveshift-audio-segment-worker --format pretty
-
-# 2. 手动触发GitHub Actions部署
-gh workflow run "Deploy FFmpeg Worker (Alpine Container)" --field force_rebuild=true
-gh workflow run "Deploy Audio Segment Worker (Container)" --field force_rebuild=true
-
-# 3. 监控部署进度
-gh run watch $(gh run list --workflow="Deploy FFmpeg Worker (Alpine Container)" --limit=1 --json id -q '.[0].id')
-gh run watch $(gh run list --workflow="Deploy Audio Segment Worker (Container)" --limit=1 --json id -q '.[0].id')
-
-# 4. 验证容器配置
-cd waveshift-ffmpeg-worker && grep -A 5 "containers" wrangler.jsonc && grep "FROM" Dockerfile
-cd waveshift-audio-segment-worker && grep -A 5 "containers" wrangler.jsonc && grep "FROM" Dockerfile
-
-# 5. 健康检查
-curl https://waveshift-ffmpeg-worker.jbang20042004.workers.dev/health || echo "FFmpeg无健康检查端点"
-curl https://waveshift-audio-segment-worker.jbang20042004.workers.dev/health
-```
-
-### 🔧 本地部署
-适用于快速开发和测试：
-
-```bash
-# 智能部署 (推荐)
-npm run deploy:smart
-
-# 完整部署
-npm run deploy:all
-```
-
-**限制**：
-- ⚠️ 需要本地 Docker 环境
-- ⚠️ 构建时间较长
-- ⚠️ 无自动缓存优化
-
-### 📋 部署前检查
-
-#### 全局要求
-- [ ] 设置 `CLOUDFLARE_API_TOKEN` 环境变量或 GitHub Secret
-- [ ] 设置 `CLOUDFLARE_ACCOUNT_ID` 环境变量或 GitHub Secret
-- [ ] 确保 GitHub CLI (`gh`) 已安装和登录 (用于 Docker 部署)
-
-#### waveshift-frontend
-- [ ] 配置数据库连接 (D1)
-- [ ] 设置 JWT_SECRET
-- [ ] 验证 Service Binding 配置
-
-#### waveshift-workflow  
-- [ ] 配置 Service Binding 到 FFmpeg Worker
-- [ ] 配置 Service Binding 到 Transcribe Worker
-- [ ] 设置 R2 存储权限
-
-#### waveshift-ffmpeg-worker (Container 部署) ⚠️ 重要
-- [ ] ✅ **使用本地 Dockerfile** - 必须设置 `"image": "./Dockerfile"`
-- [ ] ✅ **推荐Alpine镜像** - 使用 `alfg/ffmpeg` 而非 `jrottenberg/ffmpeg:ubuntu`
-- [ ] ✅ **保留 instance_type** - 有效字段：`"instance_type": "standard"`
-- [ ] ✅ **musl静态链接** - Rust编译使用 `x86_64-unknown-linux-musl` target
-- [ ] 配置 R2 存储绑定
-- [ ] 验证容器健康检查端点 
-- [ ] 测试 FFMPEG 功能
-
-**🎯 推荐配置 (2025-07)**：
-```json
-// wrangler.jsonc
-"containers": [{
-  "name": "waveshift-ffmpeg-container",
-  "class_name": "FFmpegContainer", 
-  "image": "./Dockerfile",
-  "instance_type": "standard",  // ✅ 4GB RAM
-  "max_instances": 3
-}]
-```
-
-```dockerfile
-// Dockerfile - Alpine优化版本
-FROM rust:alpine AS builder
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
-RUN rustup target add x86_64-unknown-linux-musl
-RUN cargo build --release --target x86_64-unknown-linux-musl --locked
-
-FROM alfg/ffmpeg  # 仅106MB, 启动快
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/separate-container ./
-CMD ["./separate-container"]
-```
-
-#### waveshift-audio-segment-worker (新增服务) ⚠️ 重要
-- [ ] ✅ **DO迁移配置** - 使用递增的migration tag (v10, v11...)
-- [ ] ✅ **Container绑定** - 确保Container和DO class_name匹配
-- [ ] ✅ **环境变量配置** - 音频切分参数 (GAP_DURATION_MS, MAX_DURATION_MS等)
-- [ ] ✅ **R2存储绑定** - 音频片段输出存储
-- [ ] 避免删除DO，使用新migration tag处理冲突
-
-**🎯 推荐配置 (audio-segment)**：
-```json
-// wrangler.jsonc
-{
-  "containers": [{
-    "name": "waveshift-audio-segment-container",
-    "class_name": "AudioSegmentContainer",
-    "image": "./Dockerfile",
-    "instance_type": "standard",
-    "max_instances": 3
-  }],
-  "durable_objects": {
-    "bindings": [{
-      "name": "AUDIO_SEGMENT_CONTAINER",
-      "class_name": "AudioSegmentContainer"
-    }]
-  },
-  "migrations": [{
-    "tag": "v10",  // 根据实际情况递增
-    "new_sqlite_classes": ["AudioSegmentContainer"]
-  }]
-}
-```
-
-#### waveshift-transcribe-worker
-- [ ] 设置 `GEMINI_API_KEY` secret
-- [ ] 配置 `MAX_CONCURRENT_REQUESTS` (基于 API 计划)
-- [ ] 如需处理大文件，考虑升级到付费计划并配置 `cpu_ms`
-
-### 🚀 阿里云FC容器镜像部署 ⭐ **新增功能** (2025-07)
-
-#### **🎯 FC降噪服务架构**
-- **技术栈**: Python 3.10 + FastAPI + PyTorch + ONNX Runtime
-- **部署平台**: 阿里云函数计算3.0 自定义容器
-- **核心功能**: ZipEnhancer降噪模型，支持实时音频去噪处理
-- **资源配置**: 2 vCPU + 4GB内存 + 新加坡区域(ap-southeast-1)
-- **镜像仓库**: ACR (阿里云容器镜像服务)
-
-#### **📁 项目结构** (fc-denoise-service)
-```
-fc-denoise-service/
-├── src/
-│   ├── fc_denoise_server.py      # FastAPI服务器主文件
-│   ├── zipenhancer_model.py      # ZipEnhancer模型封装
-│   └── audio_processor.py        # 音频处理工具
-├── models/
-│   └── zipenhancer.onnx          # ONNX模型文件
-├── requirements-fixed.txt        # 完整依赖(包含PyTorch+ONNX)
-├── requirements-simple.txt       # 简化依赖(已弃用)
-├── Dockerfile.minimal-fixed      # 推荐Dockerfile(避免系统包)
-├── Dockerfile.fixed              # 完整Dockerfile(包含系统依赖)
-├── s.yaml                        # Serverless Devs配置
-├── deploy-fc.sh                  # 一键部署脚本
-└── test-fixed-local.py           # 本地测试脚本
-```
-
-#### **⚠️ 关键部署经验**
-
-##### **1. Docker网络问题解决**
-- **症状**: SSL握手失败、包管理器连接超时
-- **解决方案**: 使用代理 + `--network host` 标志
-```bash
-# ✅ 成功的构建命令
-docker build --platform linux/amd64 --network host \
-  --build-arg https_proxy=http://127.0.0.1:10808 \
-  --build-arg http_proxy=http://127.0.0.1:10808 \
-  -f Dockerfile.minimal-fixed -t fc-denoise:v1.1-fixed .
-```
-
-##### **2. 依赖管理策略**
-- **❌ 失败**: requirements-simple.txt 缺少AI模型依赖
-- **✅ 成功**: requirements-fixed.txt 包含完整PyTorch+ONNX依赖
-- **关键依赖**:
-```txt
-torch==2.0.1+cpu          # PyTorch CPU版本
-torchaudio==2.0.2+cpu      # 音频处理
-onnxruntime==1.16.3        # ONNX Runtime
-librosa==0.10.1            # 音频分析
-soundfile==0.12.1          # 音频文件读写
-```
-
-##### **3. Dockerfile最佳实践**
-- **推荐**: `Dockerfile.minimal-fixed` (避免系统包安装)
-- **关键配置**:
-```dockerfile
-# 避免网络问题的pip配置
-RUN pip install --no-cache-dir \
-    --trusted-host pypi.org \
-    --trusted-host pypi.python.org \
-    --trusted-host files.pythonhosted.org \
-    --trusted-host download.pytorch.org \
-    -r requirements.txt
-
-# FC优化环境变量
-ENV OMP_NUM_THREADS=2
-ENV MKL_NUM_THREADS=2
-ENV ORT_NUM_THREADS=2
-ENV TORCH_NUM_THREADS=2
-```
-
-#### **🔧 ACR推送流程**
-```bash
-# 1. 登录ACR
-docker login crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com \
-  -u aliyun0518007542 -p 13318251863jbang
-
-# 2. 标记镜像
-docker tag fc-denoise:v1.1-fixed \
-  crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed
+# 2. 登录ACR (避免代理干扰)
+export no_proxy="crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com,*.aliyuncs.com"
+echo "13318251863jbang" | docker login --username=aliyun0518007542 --password-stdin \
+  crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com
 
 # 3. 推送镜像
-docker push crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed
+docker tag zipenhancer-gpu:latest \
+  crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/zipenhancer-gpu:latest
+docker push crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/zipenhancer-gpu:latest
+
+# 4. 部署到阿里云FC
+s deploy -y
 ```
 
-#### **📊 FC部署配置**
-- **函数名称**: fc-denoise-service
-- **运行时**: 自定义容器
-- **镜像地址**: `crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com/waveshifttts/fc-denoise:v1.1-fixed`
-- **资源配置**: 2 vCPU, 4096MB内存
-- **触发器**: HTTP触发器(匿名访问)
-- **公网地址**: https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run
-
-#### **🚨 常见故障排除**
-
-##### **1. 降噪功能不生效**
-- **症状**: 输出音频与输入音频完全相同
-- **根本原因**: requirements-simple.txt 缺少AI模型依赖
-- **解决**: 使用 requirements-fixed.txt 重新构建镜像
-
-##### **2. HTTP触发器认证错误**
-- **症状**: `{"Code":"MissingRequiredHeader","Message":"required HTTP header Date was not specified"}`
-- **解决**: 触发器设置改为"匿名访问"而非"签名认证"
-
-##### **3. Docker构建网络超时**
-- **症状**: `SSL: UNEXPECTED_EOF_WHILE_READING` 或包管理器连接失败
-- **解决**: 使用代理设置 + `--network host` 标志
-
-#### **🧪 测试和验证**
-
-##### **1. 健康检查**
+#### 通用Docker网络问题解决
 ```bash
-# 检查服务状态和模型加载情况
-curl -X GET "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/health" \
-  -H "Accept: application/json"
+# 构建时网络问题
+docker build --network=host \
+  --build-arg https_proxy=$https_proxy \
+  --build-arg http_proxy=$http_proxy \
+  -t your-image .
 
-# 预期响应（修复版本）:
-# {
-#   "status": "healthy",
-#   "service_ready": true,
-#   "model_loaded": false,  # 懒加载，首次请求时才加载
-#   "dependencies": {"torch": false, "onnxruntime": false, "model": false},
-#   "fc_environment": true
-# }
+# 容器注册表访问问题  
+export no_proxy="your-registry.com,*.aliyuncs.com"
+unset https_proxy http_proxy  # 临时禁用代理
 ```
 
-##### **2. 基础降噪测试**
+### ⚠️ 部署顺序 (Service Binding依赖)
 ```bash
-# 简单降噪测试
-curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
-  -H "Content-Type: audio/wav" \
-  -H "X-Segment-Id: test-001" \
-  -H "X-Speaker: test-speaker" \
-  -H "X-Enable-Streaming: false" \
-  -H "X-Input-Format: binary" \
-  --data-binary @test-audio.wav \
-  --output denoised-output.wav \
-  --max-time 60
+# 必须按序部署，避免Service Binding失效
+1. waveshift-audio-segment-worker
+2. waveshift-ffmpeg-worker  
+3. waveshift-transcribe-worker
+4. waveshift-workflow (依赖上述三个)
+5. waveshift-frontend (依赖workflow)
+6. zipenhancer-standalone (独立服务)
 ```
 
-##### **3. 完整测试和性能监控**
+### 🎯 阿里云FC部署配置
+- **资源配置**: Tesla T4 GPU, 4GB显存, 8GB内存, 2 vCPU
+- **镜像仓库**: ACR新加坡区域
+- **访问地址**: https://zipenhancer-gpu.ap-southeast-1.fcapp.run
+- **关键优化**: ONNX Runtime + TensorRT加速
+
+## 故障排除
+
+### 🚨 核心问题快速解决
+
+#### Service Binding "force-delete" 错误
 ```bash
-# 带性能监控的完整测试
-curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
-  -H "Content-Type: audio/wav" \
-  -H "X-Segment-Id: performance-test-$(date +%s)" \
-  -H "X-Speaker: Speaker-A" \
-  -H "X-Enable-Streaming: false" \
-  -H "X-Input-Format: binary" \
-  --data-binary @"your-audio-file.wav" \
-  --output "denoised-$(date +%H%M%S).wav" \
-  --max-time 120 \
-  -w "\n📊 性能统计:\n状态码: %{http_code}\n总时间: %{time_total}s\n下载大小: %{size_download} bytes\n" \
-  -s -S
+# 症状: {error: 'this worker has been deleted via a force-delete'}
+# 解决: 按依赖顺序重新部署所有服务
+cd waveshift-audio-segment-worker && npm run deploy
+cd ../waveshift-ffmpeg-worker && npm run deploy  
+cd ../waveshift-transcribe-worker && npm run deploy
+cd ../waveshift-workflow && npm run deploy
+cd ../waveshift-frontend && npm run deploy
 ```
 
-##### **4. 响应头验证**
+#### 容器启动失败
 ```bash
-# 获取详细的处理信息
-curl -s -D response-headers.txt -X POST \
-  "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
-  -H "Content-Type: audio/wav" \
-  -H "X-Segment-Id: header-validation" \
-  -H "X-Speaker: test-user" \
-  --data-binary @test-audio.wav \
-  --output /dev/null \
-  --max-time 60
-
-# 查看关键响应头
-grep -E "x-|X-|content-type|Content-Length" response-headers.txt
-
-# 预期成功响应头:
-# x-denoise-applied: true          ✅ 降噪已应用
-# x-processing-success: true       ✅ 处理成功
-# x-model-loaded: true            ✅ 模型已加载
-# x-processing-time: XX.XXX       ✅ 处理时间(秒)
-# Content-Length: XXXXX           ✅ 输出音频大小
+# 症状: Container crashed while checking for ports
+# 解决: 检查镜像配置，推荐使用Alpine基础镜像
+# wrangler.jsonc: "image": "./Dockerfile", "instance_type": "standard"
 ```
 
-##### **5. 音频质量对比**
+#### ACR登录EOF错误
 ```bash
-# 对比原始音频和降噪后音频
-echo "📊 音频文件对比:"
-echo "原始音频:"
-file original-audio.wav && ls -lh original-audio.wav
-
-echo "降噪后音频:"
-file denoised-audio.wav && ls -lh denoised-audio.wav
-
-# 计算文件大小变化
-original_size=$(stat -c%s original-audio.wav)
-denoised_size=$(stat -c%s denoised-audio.wav)
-size_diff=$((denoised_size - original_size))
-echo "文件大小变化: $size_diff 字节"
+# 症状: Get "https://xxx.aliyuncs.com/v2/": EOF  
+# 解决: 设置no_proxy环境变量
+export no_proxy="*.aliyuncs.com"
+docker login crpi-nw2oorfhcjjmm5o0.ap-southeast-1.personal.cr.aliyuncs.com
 ```
 
-##### **6. 批量测试脚本**
+#### 前端500错误
 ```bash
-# 批量测试多个音频文件
-for audio_file in *.wav; do
-  echo "🎵 处理: $audio_file"
-  
-  curl -X POST "https://fc-deno-service-ppbixyajpa.ap-southeast-1.fcapp.run/" \
-    -H "Content-Type: audio/wav" \
-    -H "X-Segment-Id: batch-${audio_file%.*}" \
-    -H "X-Speaker: batch-test" \
-    --data-binary @"$audio_file" \
-    --output "denoised-${audio_file}" \
-    --max-time 120 \
-    -s -w "处理完成，耗时: %{time_total}s\n"
-    
-  echo "✅ $audio_file -> denoised-${audio_file}"
-done
+# 症状: {"error":"Failed to create media task"}
+# 解决: 检查构建流程和数据库
+npm run deploy  # 确保使用opennextjs-cloudflare build
+curl -X GET https://your-worker.workers.dev/api/setup
 ```
 
-##### **🎯 实际测试结果示例**
+#### D1数据库字段不匹配
 ```bash
-# 测试样例1: noisy_sample.wav (153K)
-# 处理时间: 23.5秒
-# 文件大小: 153K -> 147K (-3.8%)
-# 状态: x-denoise-applied: true
-
-# 测试样例2: sequence_0003_Speaker C.wav (248K)  
-# 处理时间: 22.6秒
-# 文件大小: 248K -> 248K (-0.06%)
-# 状态: x-denoise-applied: true
+# 症状: Error: no such column: original_text
+# 解决: 统一字段名 original/translation
+wrangler d1 execute waveshift-database --command "PRAGMA table_info(transcription_segments);"
 ```
 
-#### **🔄 版本历史**
-- **v1.0**: 初始版本(requirements-simple.txt) - 降噪不生效
-- **v1.1-fixed**: 修复版本(requirements-fixed.txt) - 包含完整AI依赖
+### 🔧 快速诊断命令
+```bash
+# 检查服务状态
+wrangler tail your-worker --format pretty
+curl https://your-service.workers.dev/health
 
-#### **📋 部署清单**
-- [ ] 配置本地代理环境(解决网络问题)
-- [ ] 使用 Dockerfile.minimal-fixed 构建镜像
-- [ ] 验证镜像包含完整AI依赖
-- [ ] 推送镜像到ACR
-- [ ] 在FC控制台创建函数并配置镜像
-- [ ] 设置HTTP触发器为匿名访问
-- [ ] 验证降噪功能正常工作
+# 检查GitHub Actions
+gh run list --limit 5
+gh workflow run "Deploy Service Name"
 
-## 🔗 有用链接
+# 检查容器
+docker images | grep your-service
+docker logs container-name
+```
 
-- **GitHub Actions**: [查看工作流状态](https://github.com/your-org/waveshift/actions)
-- **容器注册表**: [管理容器镜像](https://github.com/your-org/waveshift/pkgs/container/waveshift-ffmpeg-container)
+## 🔗 重要链接
+
 - **Cloudflare Dashboard**: [管理 Workers 和 R2](https://dash.cloudflare.com)
+- **GitHub Actions**: 项目仓库 Actions 页面
 - **阿里云FC控制台**: [函数计算管理](https://fc3.console.aliyun.com)
 - **阿里云ACR控制台**: [容器镜像服务](https://cr.console.aliyun.com)
+
+---
+
+## 📋 开发最佳实践
+
+### 开发流程
+1. 本地开发: `npm run dev`
+2. 功能测试: 单元测试 + 集成测试
+3. 本地构建: `npm run build`
+4. 部署测试: `npm run deploy` 到测试环境
+5. 生产部署: GitHub Actions 或 `npm run deploy:smart`
+
+### 代码规范
+- TypeScript严格模式
+- ESLint代码检查: `npm run lint`
+- 类型检查: `npm run type-check`
+- 错误处理: 统一错误格式和日志
+
+### 监控和日志
+- Cloudflare Analytics: 性能监控
+- Worker日志: `wrangler tail`
+- 阿里云FC日志: 函数计算控制台
+- GitHub Actions日志: 部署状态监控

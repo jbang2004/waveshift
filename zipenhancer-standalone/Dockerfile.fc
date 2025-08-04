@@ -1,0 +1,69 @@
+# 阿里云函数计算GPU容器镜像
+# 基于NVIDIA CUDA 12.2 + cuDNN 9 + Python 3.10
+
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# 设置环境变量，避免交互式安装
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+ENV OMP_NUM_THREADS=1
+
+# 安装基础依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3-pip \
+    python3-dev \
+    libsndfile1 \
+    ca-certificates \
+    curl \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 安装cuDNN 9（必需，否则ONNX Runtime GPU无法工作）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcudnn9-cuda-12 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制requirements文件
+COPY requirements.txt .
+
+# 安装Python依赖
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# 安装FC Runtime（阿里云函数计算运行时）
+RUN pip3 install --no-cache-dir \
+    aliyun-fc2==2.5.2
+
+# 复制模型文件（先复制模型，利用Docker缓存）
+COPY speech_zipenhancer_ans_multiloss_16k_base/ ./speech_zipenhancer_ans_multiloss_16k_base/
+
+# 复制应用代码
+COPY zipenhancer.py ./
+COPY fc_handler.py ./
+
+# 创建临时目录
+RUN mkdir -p /tmp/tensorrt_cache && \
+    chmod 777 /tmp/tensorrt_cache
+
+# 设置CUDA和cuDNN库路径
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
+
+# 验证ONNX Runtime GPU支持
+RUN python3 -c "import onnxruntime; print('ONNX Runtime providers:', onnxruntime.get_available_providers())"
+
+# FC端口
+EXPOSE 9000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "import onnxruntime; assert 'CUDAExecutionProvider' in onnxruntime.get_available_providers()"
+
+# FC启动命令
+CMD ["python3", "-m", "fcruntime", "--handler", "fc_handler.handler", "--port", "9000"]
