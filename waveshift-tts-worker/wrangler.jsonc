@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "waveshift-database",
-      "database_id": "d470dd8b-cd07-468a-8090-706b152f56dd"
+      "database_id": "005024c1-ef6e-4f7d-8b86-07995a53dc49"
     }
   ],
   
@@ -28,6 +28,16 @@
   "vars": {
     "TTS_ENGINE_URL": "http://localhost:8000",
     "R2_PUBLIC_DOMAIN": "pub-c09922edccd14a90bdf16e48cf1e8cfd.r2.dev"
+  },
+  
+  // 可观察性配置
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
   },
   
   // 开发配置

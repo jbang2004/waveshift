@@ -83,6 +83,7 @@ deploy_service() {
 
 # 服务列表和路径
 declare -A services=(
+    ["waveshift-audio-segment-worker"]="waveshift-audio-segment-worker"
     ["waveshift-ffmpeg-worker"]="waveshift-ffmpeg-worker"
     ["waveshift-transcribe-worker"]="waveshift-transcribe-worker"
     ["waveshift-workflow"]="waveshift-workflow"
@@ -90,8 +91,8 @@ declare -A services=(
 )
 
 # 部署顺序很重要！
-# waveshift-ffmpeg-worker 和 waveshift-transcribe-worker 必须先部署
-deployment_order=("waveshift-ffmpeg-worker" "waveshift-transcribe-worker" "waveshift-workflow" "waveshift-frontend")
+# 基础服务必须先部署，然后是工作流，最后是前端
+deployment_order=("waveshift-audio-segment-worker" "waveshift-ffmpeg-worker" "waveshift-transcribe-worker" "waveshift-workflow" "waveshift-frontend")
 
 # 检测并部署有更改的服务
 deployed_count=0
