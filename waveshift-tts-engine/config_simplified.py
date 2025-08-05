@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ServerConfig:
     """服务器配置"""
     host: str = field(default_factory=lambda: os.getenv("SERVER_HOST", "0.0.0.0"))
-    port: int = field(default_factory=lambda: int(os.getenv("SERVER_PORT", "8000")))
+    port: int = field(default_factory=lambda: int(os.getenv("SERVER_PORT", "8001")))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 
 @dataclass
