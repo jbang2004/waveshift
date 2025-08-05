@@ -24,7 +24,8 @@
 	"vars": {
 		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
 		"R2_BUCKET_NAME": "waveshift-media",
-		"R2_PUBLIC_DOMAIN": "media.waveshift.net"
+		"R2_PUBLIC_DOMAIN": "media.waveshift.net",
+		"TTS_ENGINE_URL": "http://localhost:8000"
 	},
 	/**
 	 * Smart Placement
@@ -76,6 +77,12 @@
 			"service": "waveshift-audio-segment-worker",
 			"environment": "production",
 			"entrypoint": "AudioSegmentWorker"
+		},
+		{
+			"binding": "TTS_SERVICE",
+			"service": "waveshift-tts-worker",
+			"environment": "production",
+			"entrypoint": "TTSWorker"
 		}
 	],
 	

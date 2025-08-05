@@ -83,6 +83,16 @@ export const transcriptionSegments = sqliteTable('transcription_segments', {
   original: text('original').notNull(), // 原始语言内容
   translation: text('translation').notNull(), // 翻译后的内容
   
+  // 音频切分相关
+  audio_key: text('audio_key'), // 音频片段的R2存储路径（由audio-segment-worker生成）
+  
+  // TTS相关字段
+  tts_audio_key: text('tts_audio_key'), // TTS生成音频的R2存储路径
+  tts_status: text('tts_status').default('pending'), // pending|processing|completed|failed
+  tts_duration_ms: integer('tts_duration_ms'), // TTS音频时长（毫秒）
+  tts_processing_time_ms: integer('tts_processing_time_ms'), // TTS处理耗时（毫秒）
+  tts_error: text('tts_error'), // TTS处理错误信息
+  
   // 标记字段（使用INTEGER模拟布尔值：0=false, 1=true）
   is_first: integer('is_first').notNull().default(0), // 是否是音频的第一个片段
   is_last: integer('is_last').notNull().default(0), // 是否是音频的最后一个片段
@@ -97,6 +107,11 @@ export const transcriptionTaskIdIdx = index('idx_transcriptions_task').on(transc
 
 export const segmentLookupIdx = index('idx_segments_lookup').on(transcriptionSegments.transcription_id, transcriptionSegments.sequence);
 export const segmentTimeIdx = index('idx_segments_time').on(transcriptionSegments.transcription_id, transcriptionSegments.start_ms, transcriptionSegments.end_ms);
+
+// TTS相关索引
+export const segmentTTSReadyIdx = index('idx_segments_tts_ready').on(transcriptionSegments.transcription_id, transcriptionSegments.sequence, transcriptionSegments.audio_key, transcriptionSegments.tts_status);
+export const segmentTTSProgressIdx = index('idx_segments_tts_progress').on(transcriptionSegments.transcription_id, transcriptionSegments.tts_status);
+export const segmentTTSAudioIdx = index('idx_segments_tts_audio').on(transcriptionSegments.transcription_id, transcriptionSegments.sequence, transcriptionSegments.tts_audio_key);
 
 // 类型定义
 export type MediaTask = typeof mediaTasks.$inferSelect;

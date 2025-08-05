@@ -38,17 +38,42 @@ interface AudioSegmentService {
 	}>;
 }
 
+// TTS Service Binding 接口 (WorkerEntrypoint) - 流式TTS处理
+interface TTSService {
+	// 流式监听和TTS处理
+	watch(params: {
+		transcription_id: string;
+		output_prefix: string;
+		voice_settings?: {
+			language?: string;
+			speed?: number;
+			pitch?: number;
+			[key: string]: any;
+		};
+	}): Promise<{
+		success: boolean;
+		processed_count: number;
+		failed_count: number;
+		success_rate: string;
+		total_time_s: string;
+		transcription_id: string;
+		error?: string;
+	}>;
+}
+
 interface Env {
 	// 存储绑定 - 统一存储桶
 	MEDIA_STORAGE: R2Bucket;        // waveshift-media桶 - 所有媒体文件
 	CLOUDFLARE_ACCOUNT_ID: string;
 	R2_BUCKET_NAME: string;
 	R2_PUBLIC_DOMAIN: string;
+	TTS_ENGINE_URL: string;         // TTS引擎服务URL（外部服务）
 	
 	// 服务绑定
 	FFMPEG_SERVICE: FFmpegService;
 	TRANSCRIBE_SERVICE: Fetcher;
 	AUDIO_SEGMENT_SERVICE: AudioSegmentService;
+	TTS_SERVICE: TTSService;
 	
 	// 其他绑定
 	SEP_TRANS_PROCESSOR: WorkflowBinding;

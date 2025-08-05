@@ -78,11 +78,11 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				return id;
 			});
 			
-			// 🔥 步骤3: 并行处理 - 同时启动转录和音频切分
+			// 🔥 步骤3: 并行处理 - 同时启动转录、音频切分和TTS
 			const parallelStartTime = Date.now();
-			console.log(`🚀 开始并行处理: 转录 + 音频切分`);
+			console.log(`🚀 开始并行处理: 转录 + 音频切分 + TTS`);
 			
-			const [transcriptionResult, audioSegmentResult] = await Promise.all([
+			const [transcriptionResult, audioSegmentResult, ttsResult] = await Promise.all([
 				// 3a. 转录服务（流式写入D1）
 				step.do("realtime-transcribe", async () => {
 					console.log(`🎙️ 启动转录服务...`);
@@ -119,6 +119,41 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 						taskId,
 						enableDenoising: options.enableDenoising !== undefined ? options.enableDenoising : true  // 🆕 传递降噪选项（默认开启）
 					});
+				}),
+				
+				// 3c. 流式TTS服务（监听音频切分完成）
+				step.do("streaming-tts", async () => {
+					// 等待音频切分服务先启动并产生一些数据
+					console.log(`⏳ 等待5秒后启动TTS流式处理...`);
+					await new Promise(resolve => setTimeout(resolve, 5000));
+					
+					console.log(`🎤 启动TTS流式处理服务...`);
+					const pathParts = originalFile.split('/');
+					const userId = pathParts[1];
+					
+					if (!userId || userId.trim() === '') {
+						throw new Error(`无法从originalFile路径中提取userId: ${originalFile}`);
+					}
+					
+					const ttsOutputPrefix = `users/${userId}/${taskId}/tts-audio`;
+					console.log(`📁 TTS音频输出路径: ${ttsOutputPrefix}`);
+					
+					// 调用TTS Service Binding的流式监听接口
+					console.log(`🎤 调用TTS Service: transcriptionId=${transcriptionId}, outputPrefix=${ttsOutputPrefix}`);
+					
+					const result = await env.TTS_SERVICE.watch({
+						transcription_id: transcriptionId,
+						output_prefix: ttsOutputPrefix,
+						voice_settings: options.voiceSettings || {
+							language: options.targetLanguage || 'chinese',
+							speed: 1.0,
+							pitch: 1.0
+						}
+					});
+					
+					console.log(`📥 TTS Service响应:`, result);
+					
+					return result;
 				})
 			]);
 			
@@ -134,6 +169,7 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 				console.log(`  - 并行处理耗时: ${parallelDuration}ms`);
 				console.log(`  - 转录片段数: ${transcriptionResult.totalSegments}`);
 				console.log(`  - 音频切片数: ${audioSegmentResult.segmentCount}`);
+				console.log(`  - TTS处理结果: 成功${ttsResult.processed_count}句，失败${ttsResult.failed_count}句`);
 				console.log(`  - 视频URL: ${videoUrl}`);
 				console.log(`  - 音频URL: ${audioUrl}`);
 			});
