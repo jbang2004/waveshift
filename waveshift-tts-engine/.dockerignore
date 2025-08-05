@@ -1,0 +1,127 @@
+# Docker构建排除文件
+# 用于减小镜像大小，排除不必要的文件
+
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# Docker相关
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# Python缓存和虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+storage/logs/
+
+# 临时文件和缓存
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+.cache/
+
+# 测试文件
+tests/
+test_*.py
+*_test.py
+pytest.ini
+tox.ini
+
+# 文档
+*.md
+README*
+CHANGELOG*
+LICENSE*
+docs/
+documentation/
+
+# 配置文件（敏感信息）
+.env
+.env.*
+config.ini
+settings.ini
+secrets.json
+
+# 存储目录（运行时生成）
+storage/
+data/
+output/
+results/
+
+# 构建输出
+build/
+dist/
+*.egg-info/
+
+# 开发脚本
+scripts/dev/
+dev/
+development/
+
+# 备份文件
+*.bak
+*.backup
+*.orig
+
+# 大型数据文件
+*.wav
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.flac
+*.m4a
+
+# 模型检查点（如果太大）
+# models/*/checkpoints/*.pth
+
+# Jupyter notebooks
+*.ipynb
+.jupyter/
+
+# 系统文件
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 其他
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

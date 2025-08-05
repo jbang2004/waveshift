@@ -1,7 +1,12 @@
-import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Env, TTSWatchParams, TTSWatchResponse, TranscriptionSegment, TTSEngineResponse } from './types';
+/**
+ * WaveShift TTS Worker - 重构版本
+ * 专注批量控制和流程编排，TTS处理委托给TTS-Engine
+ */
 
-// Service接口定义 - 匹配workflow中的期望
+import { WorkerEntrypoint } from 'cloudflare:workers';
+import { Env, TTSWatchParams, TTSWatchResponse } from './types';
+import { TTSOrchestrator } from './tts-orchestrator';
+
 export interface TTSService {
   watch(params: TTSWatchParams): Promise<TTSWatchResponse>;
 }
@@ -9,75 +14,61 @@ export interface TTSService {
 export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
   
   /**
-   * Service Binding RPC方法 - 监听并处理TTS
+   * Service Binding RPC方法 - 主要入口
    */
   async watch(params: TTSWatchParams): Promise<TTSWatchResponse> {
     const { transcription_id, output_prefix, voice_settings } = params;
     const startTime = Date.now();
     
-    console.log(`🎤 TTS Worker 开始监听处理: transcriptionId=${transcription_id}`);
-    console.log(`📁 输出前缀: ${output_prefix}`);
-    console.log(`🎙️ 语音设置:`, voice_settings);
+    console.log(`🎭 TTS Worker 启动批量处理:`);
+    console.log(`  - 转录ID: ${transcription_id}`);
+    console.log(`  - 输出前缀: ${output_prefix}`);
+    console.log(`  - 语音设置:`, voice_settings);
     
     try {
       // 参数验证
       if (!transcription_id || !output_prefix) {
         throw new Error('缺少必要参数: transcription_id 或 output_prefix');
       }
-      
-      // 调用TTS引擎的HTTP API
-      const ttsEngineUrl = `${this.env.TTS_ENGINE_URL}/api/watch_and_process_tts`;
-      console.log(`🌐 调用TTS引擎: ${ttsEngineUrl}`);
-      
-      const response = await fetch(ttsEngineUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          transcription_id,
-          output_prefix,
-          voice_settings
-        })
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`TTS引擎响应错误 ${response.status}: ${errorText}`);
+
+      // 验证TTS引擎连接
+      const engineUrl = this.env.TTS_ENGINE_URL;
+      if (!engineUrl) {
+        throw new Error('TTS_ENGINE_URL 环境变量未配置');
       }
-      
-      const result: TTSEngineResponse = await response.json();
-      
+
+      console.log(`🔗 TTS引擎地址: ${engineUrl}`);
+
+      // 创建编排器并开始处理
+      const orchestrator = new TTSOrchestrator(this.env);
+      const result = await orchestrator.synthesizeTranscription(params);
+
+      // 清理资源
+      orchestrator.cleanup();
+
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-      console.log(`✅ TTS Worker 处理完成:`);
-      console.log(`  - 处理句子数: ${result.processed_count}`);
-      console.log(`  - 失败句子数: ${result.failed_count}`);
-      console.log(`  - 成功率: ${result.success_rate}`);
+      console.log(`🎉 TTS Worker 批量处理完成:`);
       console.log(`  - 总耗时: ${totalTime}秒`);
-      
-      // 返回统一格式的响应
+      console.log(`  - 处理结果: 成功 ${result.processed_count}, 失败 ${result.failed_count}`);
+      console.log(`  - 成功率: ${result.success_rate}`);
+
       return {
-        success: result.success,
-        processed_count: result.processed_count,
-        failed_count: result.failed_count,
-        success_rate: result.success_rate,
+        ...result,
         total_time_s: totalTime,
-        transcription_id: result.transcription_id,
-        error: result.error
       };
       
     } catch (error) {
-      console.error(`❌ TTS Worker 处理失败:`, error);
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.error(`❌ TTS Worker 批量处理失败:`, error);
       
-      // 返回错误响应
       return {
         success: false,
         processed_count: 0,
         failed_count: 0,
         success_rate: '0%',
-        total_time_s: ((Date.now() - startTime) / 1000).toFixed(2),
+        total_time_s: totalTime,
         transcription_id,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -93,13 +84,50 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
       return new Response(JSON.stringify({
         status: 'healthy',
         service: 'waveshift-tts-worker',
-        timestamp: new Date().toISOString()
+        version: '2.0.0',
+        timestamp: new Date().toISOString(),
+        engine_url: this.env.TTS_ENGINE_URL || 'not_configured',
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
+
+    // 状态查询端点
+    if (url.pathname === '/status' && request.method === 'GET') {
+      const transcriptionId = url.searchParams.get('transcription_id');
+      
+      if (!transcriptionId) {
+        return new Response(JSON.stringify({
+          error: '缺少 transcription_id 参数'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      try {
+        const orchestrator = new TTSOrchestrator(this.env);
+        const status = await orchestrator.getProcessingStatus(transcriptionId);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          transcription_id: transcriptionId,
+          status,
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
     
-    // 处理API请求
+    // API接口 - 支持HTTP调用
     if (url.pathname === '/api/watch' && request.method === 'POST') {
       try {
         const params: TTSWatchParams = await request.json();
@@ -121,7 +149,17 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
     }
     
     // 404 处理
-    return new Response('Not Found', { status: 404 });
+    return new Response(JSON.stringify({
+      error: 'Not Found',
+      available_endpoints: [
+        'GET /health - 健康检查',
+        'GET /status?transcription_id=xxx - 状态查询',
+        'POST /api/watch - TTS批量处理',
+      ]
+    }), { 
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 

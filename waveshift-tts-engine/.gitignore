@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env/
+*.log
+
+# Node
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+
+# 模型文件和checkpoints
+models/ClearerVoice_Minimal/checkpoints/
+models/IndexTTS/checkpoints/
+models/*/checkpoints/
+checkpoints/
+
+
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# 环境文件
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 项目特定
+storage/
+*.mp4
+*.wav
+*.mp3
+*.m4a
+*.flac
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+.ipynb_checkpoints/
+测试结果/
+.cursor/rules/two_pipeline_refactor.mdc
+
+# 分析和调试文件
+*analysis*.py
+*analysis*.md
+*report*.md
+app.log
+*.log

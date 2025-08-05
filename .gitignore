@@ -71,5 +71,20 @@ __pycache__/
 # Ignore fc-denoise-service directory
 fc-denoise-service/
 
+# TTS Engine large files
+waveshift-tts-engine/models/**/*.pth
+waveshift-tts-engine/models/**/*.onnx
+waveshift-tts-engine/*.log
+waveshift-tts-engine/tts_engine*.log
+
+# Python 环境
+waveshift-tts-engine/__pycache__/
+waveshift-tts-engine/**/__pycache__/
+waveshift-tts-engine/.env
+
+# 临时文件
+waveshift-tts-engine/tmp/
+waveshift-tts-engine/temp/
+
 # Process files
 server.pid
