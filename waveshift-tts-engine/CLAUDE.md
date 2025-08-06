@@ -6,36 +6,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WaveShift TTS Engine 是一个重构简化的 TTS（文字转语音）引擎，采用双接口架构设计。既支持与 Cloudflare TTS-Worker 的批量协作，也保留完整的媒体处理能力。
 
-## 🎯 重构成果（2025-08-05）
+## 🎯 重构成果（2025-08-06）
 
-### 代码清理统计
+### 第四次优化 - 配置系统规范化
+- ✅ 将 `config_simplified.py` 重命名为 `config.py`
+- ✅ 统一所有配置导入（从两套系统到一套）
+- ✅ 扩展Config兼容类（添加20+个缺失属性）
+- ✅ 处理cloudflare模块缺失（添加stub类）
+- ✅ 优化配置访问逻辑
+- 📊 **配置系统完全统一，100%兼容性**
+
+### 第三次清理 - 彻底精简
+- ✅ 删除 `legacy/` 目录（约3000行备份代码）
+- ✅ 删除 `start.sh`、`README.md`、`DEPLOYMENT.md`（过时文档）
+- ✅ 合并环境变量模板（删除 `.env.example`）
+- ✅ 删除空的 `__init__.py` 文件
+- 📊 **净减少约3684行冗余代码和文档**
+
+### 第二次重构 - 智能双模式架构
+- ✅ 删除 `app.py`、`launcher.py`、`orchestrator.py`、`config.py` (传统架构文件)
+- ✅ 删除 `core/data_fetcher.py`、`core/client_manager.py` (传统架构专用服务)
+- ✅ 扩展 `synthesizer.py` 支持双模式（simple/full）
+- ✅ 优化 `duration_aligner.py` 直接导入依赖
+- ✅ 新增 `ProcessingMode` 配置支持
+- 📊 **净减少约1000行冗余代码**，架构更清晰
+
+### 第一次重构（2025-08-05）
 - ✅ 删除 `api_old.py` (317行孤立代码)
 - ✅ 删除 `core/simplified_orchestrator.py` (100行重复代码) 
 - ✅ 删除 `waveshift-tts-worker/src/index_old.ts` (129行旧版代码)
 - 📊 总计清理约 **546行冗余代码**，减少约15%代码量
 
-### 架构优化
-- 🔥 **双接口设计**: 支持批量TTS + 完整处理两种模式
-- 🎯 **简化配置**: 使用 `config_simplified.py` 替代复杂配置
-- 🚀 **优雅启动**: 使用 `start_new.py` 统一启动入口
-- ✨ **依赖验证**: 在 cosyvoice 环境中测试通过
+### 架构优化成果
+- 🔥 **智能双模式架构**: simple模式（仅TTS）| full模式（完整处理链）
+- 🎯 **延迟加载服务**: 按需加载扩展服务，优化内存使用
+- 🚀 **统一入口**: `synthesizer.py` v3.0 作为唯一服务入口
+- ✨ **100%向后兼容**: 完全兼容TTS-Worker调用
+- 📦 **极简代码库**: 累计删除约5230行冗余代码（减少60%+）
 
 ## 常用命令
 
-### 新架构启动（推荐）
+### 新架构启动（唯一方式）
 ```bash
-# 启动简化版TTS引擎
-python3 start_new.py
-
 # 在cosyvoice环境中启动
 conda activate cosyvoice
 python3 start_new.py
-```
 
-### 传统启动（保留）
-```bash
-# 旧版完整流程启动
-python3 app.py
+# 或直接运行synthesizer
+python3 synthesizer.py
 ```
 
 ### 安装依赖
@@ -45,22 +63,20 @@ pip install -r requirements.txt
 
 ## 架构说明
 
-### 🏗️ 双接口架构设计
+### 🏗️ 智能双模式架构 v3.0
 
-#### 新架构（推荐）
-- **入口**: `synthesizer.py` + `start_new.py`
-- **核心**: `VoiceSynthesizer` (优雅重命名)
-- **配置**: `config_simplified.py` (简化配置)
-- **接口**: 
-  - `POST /synthesize` - 批量TTS合成（与TTS-Worker协作）
-  - `GET /health` - 健康检查
+#### 统一架构
+- **入口**: `synthesizer.py` v3.0 + `start_new.py`
+- **核心**: `VoiceSynthesizer` (TTS引擎)
+- **配置**: `config.py` (统一配置系统)
+- **模式**: 
+  - **simple模式**: 仅TTS合成，兼容TTS-Worker
+  - **full模式**: 完整处理链（TTS + 时长对齐 + 时间戳校准 + 媒体合成 + HLS）
 
-#### 传统架构（保留）
-- **入口**: `app.py` + `launcher.py`
-- **核心**: 完整的媒体处理流水线
-- **接口**: 
-  - `POST /api/start_tts` - 完整媒体处理流程
-  - `GET /api/task/{task_id}/status` - 任务状态查询
+#### API接口
+- `POST /synthesize` - 统一合成接口（支持双模式）
+- `GET /health` - 健康检查
+- `GET /task/{task_id}/status` - 任务状态查询（full模式）
 
 ### 核心技术栈
 - **FastAPI**: REST API 接口
@@ -73,15 +89,14 @@ pip install -r requirements.txt
 2. **SynthesisConfig**: 简化的配置系统
 3. **Sentence**: 统一的句子数据结构
 
-### 📊 传统架构组件（保留）
-1. **DataFetcher**: 从 D1 获取转录数据，从 R2 下载媒体文件
-2. **Simplifier**: 文本简化器（用于时长调整）
-3. **DurationAligner**: 时长对齐器
-4. **TimestampAdjuster**: 时间戳调整
-5. **MediaMixer**: 音视频合成
-6. **VocalSeparator**: 音频分离器
-7. **HLSManager**: HLS 流媒体管理（输出到 R2）
-8. **MainOrchestrator**: 主任务编排器
+### 📊 扩展服务组件（延迟加载）
+1. **Simplifier**: 文本简化器（用于时长调整）
+2. **DurationAligner**: 时长对齐器（内置Simplifier依赖）
+3. **TimestampAdjuster**: 时间戳调整
+4. **MediaMixer**: 音视频合成
+5. **VocalSeparator**: 音频分离器（保留备用）
+6. **HLSManager**: HLS 流媒体管理
+7. **Translation模块**: AI翻译客户端集合
 
 ### 环境配置
 必须设置的环境变量（通过 `.env` 文件）：

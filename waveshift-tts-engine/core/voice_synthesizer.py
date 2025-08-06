@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 class VoiceSynthesizer:
     """
     优雅的语音合成器 - 专注批量TTS处理
-    原MyIndexTTSDeployment的重构版本，使用更清晰的命名
+    基于IndexTTS v0.1.4模型的高性能语音合成引擎
     """
-    def __init__(self, batch_size: int = 3):
+    def __init__(self, config=None):
         # 确保在新进程中可以正确导入indextts模块
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         indextts_dir = os.path.join(project_dir, 'models', 'IndexTTS')
@@ -27,11 +27,20 @@ class VoiceSynthesizer:
             sys.path.insert(0, indextts_dir)
             logger.info(f"添加IndexTTS模块路径: {indextts_dir}")
         
-        # 初始化设备和配置
+        # 初始化配置和设备
+        if config is None:
+            from config import get_config
+            self.config = get_config()
+        else:
+            self.config = config
+        
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.batch_size = batch_size
-        self.sampling_rate = 24000  # 简化配置
-        self._synthesis_lock = asyncio.Lock()
+        
+        # 从配置获取参数 - 统一方式
+        self.sampling_rate = self.config.tts.target_sample_rate
+        self.batch_size = self.config.tts.batch_size
+        
+        self._lock = asyncio.Lock()
         
         # 定义模型路径
         checkpoints_dir = os.path.join(project_dir, 'models', 'IndexTTS', 'checkpoints')
@@ -49,7 +58,7 @@ class VoiceSynthesizer:
                 is_fp16=True,
                 device=self.device
             )
-            logger.info(f"IndexTTS模型加载成功，batch_size={batch_size}")
+            logger.info(f"IndexTTS模型加载成功，batch_size={self.batch_size}")
             
         except Exception as e:
             logger.exception(f"IndexTTS初始化失败: {e}")
@@ -164,7 +173,7 @@ class VoiceSynthesizer:
                     tts_result = None
                 else:
                     logger.debug(f"TTS 处理句子 {sentence.sequence}，音频路径: {sentence.audio}")
-                    async with self._synthesis_lock:
+                    async with self._lock:
                         tts_result = await asyncio.to_thread(
                             self.tts_model.infer,
                             sentence.audio,
@@ -234,3 +243,4 @@ class VoiceSynthesizer:
         async for batch in self.generateVoices(sentences):
             results.extend(batch)
         return results
+

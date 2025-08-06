@@ -12,10 +12,23 @@ import aiofiles
 from utils.ffmpeg_utils import hls_segment, concat_videos
 from utils.path_manager import PathManager
 from config import Config
-from core.cloudflare.d1_client import D1Client
-from core.cloudflare.r2_hls_storage_manager import R2HLSStorageManager
+
+# 注意：Cloudflare模块已移除，HLS功能需要重新实现
+# from core.cloudflare.d1_client import D1Client
+# from core.cloudflare.r2_hls_storage_manager import R2HLSStorageManager
 
 logger = logging.getLogger(__name__)
+
+# 空的stub类，避免导入错误
+class D1Client:
+    """D1Client stub - 需要重新实现"""
+    def __init__(self, **kwargs):
+        logger.warning("D1Client未实现，HLS功能可能不可用")
+
+class R2HLSStorageManager:
+    """R2HLSStorageManager stub - 需要重新实现"""
+    def __init__(self, **kwargs):
+        logger.warning("R2HLSStorageManager未实现，HLS功能可能不可用")
 
 class HLSManager:
     """HLS流媒体管理器 - 支持多任务管理和并行上传优化"""

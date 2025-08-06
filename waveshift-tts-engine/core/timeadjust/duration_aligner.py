@@ -8,15 +8,19 @@ from utils.duration_utils import apply_speed_and_silence, align_batch
 logger = logging.getLogger(__name__)
 
 class DurationAligner:
-    def __init__(self, simplifier=None, index_tts=None):
+    def __init__(self):
+        """优化的初始化 - 直接导入依赖，不使用注入"""
         self.config = get_config()
-        self.sample_rate = self.config.TARGET_SR
+        self.sample_rate = self.config.tts.target_sample_rate
         
-        # 接受服务实例作为参数
-        self.simplifier = simplifier
-        self.index_tts = index_tts
+        # 直接导入依赖服务
+        from core.translation.simplifier import Simplifier
+        from core.voice_synthesizer import VoiceSynthesizer
         
-        logger.info("时长对齐器初始化完成")
+        self.simplifier = Simplifier()
+        self.index_tts = VoiceSynthesizer(self.config)
+        
+        logger.info("时长对齐器初始化完成（内置依赖）")
 
     async def __call__(self, sentences: List[Sentence], max_speed: float = 1.1, path_manager=None) -> List[Sentence]:
         """执行句子时长对齐
@@ -135,7 +139,7 @@ class DurationAligner:
         refined_sentences = []
         try:
             logger.info(f"[{task_id}] 开始重新生成 {len(simplified_results)} 个句子的音频")
-            async for tts_batch in self.index_tts.generate_audio_stream(simplified_results, path_manager):
+            async for tts_batch in self.index_tts.generateVoices(simplified_results, path_manager):
                 if tts_batch:
                     refined_sentences.extend(tts_batch)
             logger.info(f"[{task_id}] 音频重新生成完成，获得 {len(refined_sentences)} 个句子")

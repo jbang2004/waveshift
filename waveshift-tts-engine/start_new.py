@@ -37,7 +37,7 @@ def main():
     
     # 加载配置
     try:
-        from config_simplified import get_config
+        from config import get_config
         config = get_config()
         
         logger.info("📋 启动配置:")
