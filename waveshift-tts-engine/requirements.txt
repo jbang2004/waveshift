@@ -1,4 +1,5 @@
 aiofiles
+aiohttp
 Cython
 einops
 huggingface_hub==0.27.1

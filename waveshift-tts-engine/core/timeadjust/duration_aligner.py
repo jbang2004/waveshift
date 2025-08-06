@@ -8,19 +8,29 @@ from utils.duration_utils import apply_speed_and_silence, align_batch
 logger = logging.getLogger(__name__)
 
 class DurationAligner:
-    def __init__(self):
-        """优化的初始化 - 直接导入依赖，不使用注入"""
+    def __init__(self, voice_synthesizer=None, simplifier=None):
+        """使用依赖注入模式 - 避免循环依赖
+        
+        Args:
+            voice_synthesizer: 可选的语音合成器实例（共享使用）
+            simplifier: 可选的文本简化器实例
+        """
         self.config = get_config()
         self.sample_rate = self.config.tts.target_sample_rate
         
-        # 直接导入依赖服务
-        from core.translation.simplifier import Simplifier
-        from core.voice_synthesizer import VoiceSynthesizer
+        # 使用注入的依赖或创建新实例
+        if simplifier is None:
+            from core.translation.simplifier import Simplifier
+            self.simplifier = Simplifier()
+        else:
+            self.simplifier = simplifier
+            
+        # 重要：使用共享的voice_synthesizer，避免重复加载模型
+        self.index_tts = voice_synthesizer
+        if self.index_tts is None:
+            logger.warning("DurationAligner: 未提供voice_synthesizer，某些功能可能不可用")
         
-        self.simplifier = Simplifier()
-        self.index_tts = VoiceSynthesizer(self.config)
-        
-        logger.info("时长对齐器初始化完成（内置依赖）")
+        logger.info("时长对齐器初始化完成（依赖注入模式）")
 
     async def __call__(self, sentences: List[Sentence], max_speed: float = 1.1, path_manager=None) -> List[Sentence]:
         """执行句子时长对齐
@@ -136,6 +146,10 @@ class DurationAligner:
             simplified_results: 简化后的句子列表
             path_manager: 共享的路径管理器（可选）
         """
+        if self.index_tts is None:
+            logger.error(f"[{task_id}] 无法重新生成音频：voice_synthesizer未初始化")
+            return []
+            
         refined_sentences = []
         try:
             logger.info(f"[{task_id}] 开始重新生成 {len(simplified_results)} 个句子的音频")

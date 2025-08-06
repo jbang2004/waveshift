@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from core.voice_synthesizer import VoiceSynthesizer
 from core.sentence_tools import Sentence
+from core.audio_sample_manager import get_audio_sample_manager
 from config import get_config
 
 # 配置日志
@@ -30,7 +31,7 @@ class SentenceRequest(BaseModel):
     """单句合成请求"""
     sequence: int
     text: str
-    audioSample: str  # R2 key for voice cloning
+    audioSample: Optional[str] = None  # R2 key for voice cloning (可选)
     speaker: str
     startMs: int
     endMs: int
@@ -148,10 +149,10 @@ async def simple_tts_pipeline(request: SynthesisRequest) -> SynthesisResponse:
     简单TTS管线 - 兼容TTS-Worker
     """
     try:
-        # 转换为内部Sentence对象
+        # 转换为内部Sentence对象（异步下载音频样本）
         sentences = []
         for req in request.sentences:
-            sentence = create_sentence_from_request(req)
+            sentence = await create_sentence_from_request(req)
             sentences.append(sentence)
         
         # 批量合成
@@ -204,10 +205,10 @@ async def full_processing_pipeline(request: SynthesisRequest) -> SynthesisRespon
         # 按需加载服务
         services = await load_required_services(request)
         
-        # 转换为内部Sentence对象
+        # 转换为内部Sentence对象（异步下载音频样本）
         sentences = []
         for req in request.sentences:
-            sentence = create_sentence_from_request(req)
+            sentence = await create_sentence_from_request(req)
             if request.task_id:
                 sentence.task_id = request.task_id
             sentences.append(sentence)
@@ -287,7 +288,10 @@ async def load_required_services(request: SynthesisRequest) -> Dict:
         if 'duration_aligner' not in extended_services:
             logger.info("加载时长对齐服务...")
             from core.timeadjust.duration_aligner import DurationAligner
-            extended_services['duration_aligner'] = DurationAligner()
+            # 传入共享的voice_synthesizer实例，避免循环依赖
+            extended_services['duration_aligner'] = DurationAligner(
+                voice_synthesizer=voice_synthesizer
+            )
         services['duration_aligner'] = extended_services['duration_aligner']
     
     if request.enable_timestamp_adjust:
@@ -341,13 +345,28 @@ async def get_task_status(task_id: str):
 # 辅助函数
 # ================================
 
-def create_sentence_from_request(req: SentenceRequest) -> Sentence:
-    """从请求创建Sentence对象"""
+async def create_sentence_from_request(req: SentenceRequest) -> Sentence:
+    """
+    从请求创建Sentence对象
+    自动处理音频样本的下载（从URL到本地路径）
+    """
+    # 下载音频样本到本地（如果是URL）
+    local_audio_path = req.audioSample
+    if req.audioSample and req.audioSample.strip():
+        try:
+            audio_manager = get_audio_sample_manager()
+            local_audio_path = await audio_manager.get_local_path(req.audioSample)
+            logger.info(f"音频样本下载成功: {req.audioSample} -> {local_audio_path}")
+        except Exception as e:
+            logger.error(f"下载音频样本失败: {req.audioSample}, 错误: {e}")
+            # 继续处理，但没有音频样本（将使用默认语音）
+            local_audio_path = None
+    
     return Sentence(
         original_text=req.text,
         translated_text=req.text,
         sequence=req.sequence,
-        audio=req.audioSample,  # 用作语音克隆样本
+        audio=local_audio_path,  # 使用本地路径
         speaker=req.speaker,
         start_ms=req.startMs,
         end_ms=req.endMs,

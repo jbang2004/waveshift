@@ -168,11 +168,22 @@ class VoiceSynthesizer:
             try:
                 # 验证音频文件路径
                 if not sentence.audio or sentence.audio == "." or not os.path.exists(sentence.audio):
-                    logger.error(f"TTS 错误：句子 {sentence.sequence}，音频文件路径无效: '{sentence.audio}'")
-                    logger.error(f"句子详情：text='{sentence.translated_text[:50]}...', speaker='{sentence.speaker}'")
-                    tts_result = None
+                    if sentence.audio and sentence.audio != ".":
+                        logger.warning(f"TTS 警告：句子 {sentence.sequence}，音频样本无效: '{sentence.audio}'，将使用默认语音")
+                    else:
+                        logger.info(f"TTS：句子 {sentence.sequence} 未提供音频样本，使用默认语音合成")
+                    
+                    # 使用默认语音合成（不使用语音克隆）
+                    async with self._lock:
+                        tts_result = await asyncio.to_thread(
+                            self.tts_model.infer,
+                            None,  # 不提供参考音频，使用默认语音
+                            sentence.translated_text,
+                            None,
+                            False
+                        )
                 else:
-                    logger.debug(f"TTS 处理句子 {sentence.sequence}，音频路径: {sentence.audio}")
+                    logger.debug(f"TTS 处理句子 {sentence.sequence}，使用音频样本: {sentence.audio}")
                     async with self._lock:
                         tts_result = await asyncio.to_thread(
                             self.tts_model.infer,
