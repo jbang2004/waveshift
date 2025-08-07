@@ -27,7 +27,7 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 			});
 			
 			// 步骤1: 音视频分离 (委托给 ffmpeg-worker)
-			const { audioUrl, videoUrl, audioKey } = await step.do("separate-media", async () => {
+			const { audioUrl, videoUrl, audioKey, videoKey } = await step.do("separate-media", async () => {
 				console.log(`步骤1: 开始音视频分离 ${taskId}`);
 				
 				// 从原始文件路径中提取userId（格式: users/{userId}/{taskId}/original.{ext}）
@@ -144,10 +144,18 @@ export class SepTransWorkflow extends WorkflowEntrypoint<Env, SepTransWorkflowPa
 					const result = await env.TTS_SERVICE.watch({
 						transcription_id: transcriptionId,
 						output_prefix: ttsOutputPrefix,
-						voice_settings: options.voiceSettings || {
+						voice_settings: {
 							language: options.targetLanguage || 'chinese',
 							speed: 1.0,
 							pitch: 1.0
+						},
+						// 传递媒体上下文信息，用于TTS引擎的完整处理模式
+						media_context: {
+							task_id: taskId,
+							user_id: userId,
+							audio_key: audioKey,      // 来自FFmpeg-Worker的音频文件键
+							video_key: videoKey,      // 来自FFmpeg-Worker的视频文件键
+							r2_domain: env.R2_PUBLIC_DOMAIN
 						}
 					});
 					

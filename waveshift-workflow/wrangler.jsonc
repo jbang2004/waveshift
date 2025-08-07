@@ -25,7 +25,7 @@
 		"CLOUDFLARE_ACCOUNT_ID": "1298fa35ac940c688dc1b6d8f5eead72",
 		"R2_BUCKET_NAME": "waveshift-media",
 		"R2_PUBLIC_DOMAIN": "media.waveshift.net",
-		"TTS_ENGINE_URL": "http://localhost:8000"
+		"TTS_ENGINE_URL": "https://still-utterly-sunfish.ngrok-free.app"
 	},
 	/**
 	 * Smart Placement
@@ -64,24 +64,20 @@
 		{
 			"binding": "FFMPEG_SERVICE",
 			"service": "waveshift-ffmpeg-worker",
-			"environment": "production",
 			"entrypoint": "FFmpegWorker"
 		},
 		{
 			"binding": "TRANSCRIBE_SERVICE",
-			"service": "waveshift-transcribe-worker",
-			"environment": "production"
+			"service": "waveshift-transcribe-worker"
 		},
 		{
 			"binding": "AUDIO_SEGMENT_SERVICE",
 			"service": "waveshift-audio-segment-worker",
-			"environment": "production",
 			"entrypoint": "AudioSegmentWorker"
 		},
 		{
 			"binding": "TTS_SERVICE",
 			"service": "waveshift-tts-worker",
-			"environment": "production",
 			"entrypoint": "TTSWorker"
 		}
 	],

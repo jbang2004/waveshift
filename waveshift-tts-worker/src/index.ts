@@ -6,6 +6,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Env, TTSWatchParams, TTSWatchResponse } from './types';
 import { TTSOrchestrator } from './tts-orchestrator';
+import { SegmentDatabase } from './database';
 
 export interface TTSService {
   watch(params: TTSWatchParams): Promise<TTSWatchResponse>;
@@ -17,13 +18,16 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
    * Service Binding RPC方法 - 主要入口
    */
   async watch(params: TTSWatchParams): Promise<TTSWatchResponse> {
-    const { transcription_id, output_prefix, voice_settings } = params;
+    const { transcription_id, output_prefix, voice_settings, media_context } = params;
     const startTime = Date.now();
     
     console.log(`🎭 TTS Worker 启动批量处理:`);
     console.log(`  - 转录ID: ${transcription_id}`);
     console.log(`  - 输出前缀: ${output_prefix}`);
     console.log(`  - 语音设置:`, voice_settings);
+    console.log(`  - 媒体上下文:`, media_context);
+    
+    let orchestrator: TTSOrchestrator | null = null;
     
     try {
       // 参数验证
@@ -40,11 +44,8 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
       console.log(`🔗 TTS引擎地址: ${engineUrl}`);
 
       // 创建编排器并开始处理
-      const orchestrator = new TTSOrchestrator(this.env);
+      orchestrator = new TTSOrchestrator(this.env);
       const result = await orchestrator.synthesizeTranscription(params);
-
-      // 清理资源
-      orchestrator.cleanup();
 
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
       console.log(`🎉 TTS Worker 批量处理完成:`);
@@ -70,6 +71,19 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
         transcription_id,
         error: error instanceof Error ? error.message : String(error),
       };
+    } finally {
+      // 清理资源
+      if (orchestrator) {
+        try {
+          // 如果有媒体上下文，清理对应的任务资源
+          if (media_context) {
+            await orchestrator.cleanupTask(media_context.task_id);
+          }
+          orchestrator.cleanup();
+        } catch (cleanupError) {
+          console.error('❌ 资源清理失败:', cleanupError);
+        }
+      }
     }
   }
   
@@ -106,13 +120,14 @@ export class TTSWorker extends WorkerEntrypoint<Env> implements TTSService {
       }
 
       try {
-        const orchestrator = new TTSOrchestrator(this.env);
-        const status = await orchestrator.getProcessingStatus(transcriptionId);
+        // 简化状态查询，直接查询数据库
+        const database = new SegmentDatabase(this.env.DB);
+        const stats = await database.getProcessingStats(transcriptionId);
         
         return new Response(JSON.stringify({
           success: true,
           transcription_id: transcriptionId,
-          status,
+          status: stats,
         }), {
           headers: { 'Content-Type': 'application/json' }
         });

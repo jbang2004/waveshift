@@ -27,29 +27,25 @@ class ServerConfig:
 
 @dataclass
 class TTSConfig:
-    """TTS核心配置 - 移除所有外部依赖"""
-    # 批处理配置
-    batch_size: int = field(default_factory=lambda: int(os.getenv("TTS_BATCH_SIZE", "3")))
-    
-    # 音频参数
-    target_sample_rate: int = field(default_factory=lambda: int(os.getenv("TARGET_SR", "24000")))
-    
-    # 文件管理
-    save_audio: bool = field(default_factory=lambda: os.getenv("SAVE_TTS_AUDIO", "true").lower() == "true")
-    cleanup_temp_files: bool = field(default_factory=lambda: os.getenv("CLEANUP_TEMP_FILES", "false").lower() == "true")
-    
-    # IndexTTS模型路径
-    model_path: str = field(default_factory=lambda: os.getenv("LOCAL_MODEL_PATH", "models/IndexTTS"))
-    
-    def __post_init__(self):
-        """验证TTS配置"""
-        if not (1 <= self.batch_size <= 10):
-            logger.warning(f"batch_size {self.batch_size} 不在推荐范围内，使用默认值 3")
-            self.batch_size = 3
+    """TTS相关配置"""
+    def __init__(self):
+        # 现有配置
+        self.batch_size = int(os.getenv("TTS_BATCH_SIZE", "3"))
+        self.save_audio = os.getenv("TTS_SAVE_AUDIO", "true").lower() == "true"
+        self.enable_audio_separation = os.getenv("TTS_ENABLE_AUDIO_SEPARATION", "true").lower() == "true"
         
-        if self.target_sample_rate not in [16000, 22050, 24000, 44100, 48000]:
-            logger.warning(f"target_sample_rate {self.target_sample_rate} 不在标准范围内，使用默认值 24000")
+        # IndexTTS模型配置
+        model_name = os.getenv("TTS_MODEL_NAME", "indextts")
+        if model_name == "indextts":
             self.target_sample_rate = 24000
+        else:
+            self.target_sample_rate = 24000
+        
+        # 新增：任务上下文管理配置
+        self.enable_task_context = os.getenv("TTS_ENABLE_TASK_CONTEXT", "true").lower() == "true"
+        self.task_cleanup_timeout = int(os.getenv("TTS_TASK_CLEANUP_TIMEOUT", "3600"))  # 1小时后自动清理
+        self.max_concurrent_downloads = int(os.getenv("TTS_MAX_CONCURRENT_DOWNLOADS", "3"))
+        self.download_timeout = int(os.getenv("TTS_DOWNLOAD_TIMEOUT", "300"))  # 5分钟下载超时
 
 @dataclass
 class PathConfig:

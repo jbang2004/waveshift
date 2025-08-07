@@ -10,6 +10,15 @@ export interface Env {
   R2_PUBLIC_DOMAIN: string;
 }
 
+// 媒体上下文信息
+export interface MediaContext {
+  task_id: string;
+  user_id: string;
+  audio_key: string;    // R2中的音频文件键
+  video_key: string;    // R2中的视频文件键
+  r2_domain: string;    // R2公共域名
+}
+
 // TTS请求参数接口
 export interface TTSWatchParams {
   transcription_id: string;
@@ -20,6 +29,8 @@ export interface TTSWatchParams {
     pitch?: number;
     [key: string]: any;
   };
+  // 新增：媒体上下文信息，用于TTS引擎获取音视频文件
+  media_context?: MediaContext;
 }
 
 // TTS响应接口

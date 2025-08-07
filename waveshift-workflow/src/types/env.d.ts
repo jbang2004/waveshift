@@ -50,6 +50,14 @@ interface TTSService {
 			pitch?: number;
 			[key: string]: any;
 		};
+		// 新增：媒体上下文信息，用于TTS引擎的完整处理模式
+		media_context?: {
+			task_id: string;
+			user_id: string;
+			audio_key: string;
+			video_key: string;
+			r2_domain: string;
+		};
 	}): Promise<{
 		success: boolean;
 		processed_count: number;
