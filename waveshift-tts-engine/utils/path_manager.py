@@ -93,22 +93,32 @@ class TempFileManager:
     def media_dir(self) -> Path:
         """媒体文件目录"""
         return self.get_subdir("media")
-    
+
+    @property
+    def audio_dir(self) -> Path:
+        """原始音频下载目录"""
+        return self.get_subdir("audio")
+
+    @property
+    def video_dir(self) -> Path:
+        """原始视频下载目录"""
+        return self.get_subdir("video")
+
     @property
     def segments_dir(self) -> Path:
         """片段目录"""
         return self.get_subdir("segments")
-    
+
     @property
     def audio_prompts_dir(self) -> Path:
         """音频提示目录"""
         return self.get_subdir("audio_prompts")
-    
+
     @property
     def tts_output_dir(self) -> Path:
         """TTS输出音频目录"""
         return self.get_subdir("tts_output")
-    
+
     @property
     def separated_dir(self) -> Path:
         """音频分离目录"""
