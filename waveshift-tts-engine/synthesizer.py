@@ -401,10 +401,14 @@ async def full_processing_pipeline(request: SynthesisRequest) -> SynthesisRespon
         media_output = None
         if request.enable_media_mix and request.video_path and 'media_mixer' in services:
             logger.info("完整模式 - 阶段4: 媒体合成")
+            # 为非任务上下文模式构造临时 PathManager
+            temp_pm = PathManager(request.task_id or "default")
+            temp_pm.set_media_paths(request.audio_path, request.video_path)
             media_output = await services['media_mixer'].mix_media(
-                tts_sentences, 
-                request.video_path,
-                request.audio_path
+                sentences_batch=tts_sentences,
+                path_manager=temp_pm,
+                batch_counter=0,
+                task_id=request.task_id or "default"
             )
             processing_stages.append("media_mix")
         
@@ -424,7 +428,7 @@ async def full_processing_pipeline(request: SynthesisRequest) -> SynthesisRespon
             result = SynthesisResult(
                 sequence=sentence.sequence,
                 audioKey=getattr(sentence, 'tts_audio_path', ''),
-                durationMs=int(getattr(sentence, 'duration', 0)),
+                durationMs=int(round(len(sentence.generated_audio) / config.tts.target_sample_rate * 1000)) if getattr(sentence, 'generated_audio', None) is not None else int(getattr(sentence, 'duration', 0)), 
                 success=True
             )
             results.append(result)
@@ -574,7 +578,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "tts-synthesis-engine",
-        "version": "3.0.0",
+        "version": "4.0.0",
         "mode": "dual",  # 双模式
         "batch_size": config.tts.batch_size if config else 3,
         "loaded_services": list(extended_services.keys())  # 已加载的扩展服务

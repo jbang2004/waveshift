@@ -62,6 +62,28 @@ class HLSManager:
         
         self.logger.info("HLS管理器已初始化（支持并行上传优化）")
 
+    async def generate_hls(self, media_output: str, task_id: Optional[str] = None) -> str:
+        """最小实现：包装已有create_manager/add_segment/finalize逻辑，返回本地m3u8路径。
+        由于R2存储管理器为stub，此处返回本地播放列表路径，调用方可直接使用本地播放。
+        """
+        try:
+            if not task_id:
+                task_id = "default"
+            # 为该任务构建一个简易PathManager
+            pm = PathManager(task_id)
+            await self.create_manager(task_id, pm)
+            # 将整个成品视频当作一个分段
+            add_res = await self.add_segment(task_id, media_output, part_index=0)
+            if add_res.get("status") != "success":
+                raise RuntimeError(f"添加片段失败: {add_res}")
+            await self.finalize_playlist(task_id)
+            manager = self.task_managers.get(task_id)
+            playlist_path = manager["playlist_path"] if manager else None
+            return str(playlist_path) if playlist_path else ""
+        except Exception as e:
+            self.logger.error(f"generate_hls 失败: {e}")
+            return ""
+
     async def create_manager(self, task_id: str, path_manager: PathManager) -> Dict:
         """
         为特定任务创建HLS管理器

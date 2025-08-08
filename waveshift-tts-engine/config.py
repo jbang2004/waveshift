@@ -46,6 +46,12 @@ class TTSConfig:
         self.task_cleanup_timeout = int(os.getenv("TTS_TASK_CLEANUP_TIMEOUT", "3600"))  # 1小时后自动清理
         self.max_concurrent_downloads = int(os.getenv("TTS_MAX_CONCURRENT_DOWNLOADS", "3"))
         self.download_timeout = int(os.getenv("TTS_DOWNLOAD_TIMEOUT", "300"))  # 5分钟下载超时
+        
+        # 新增：缺失字段补齐
+        self.cleanup_temp_files = os.getenv("CLEANUP_TEMP_FILES", "false").lower() == "true"
+        # 模型目录（供日志/工具访问）
+        global project_dir
+        self.model_path = str(project_dir / "models" / "IndexTTS" / "checkpoints")
 
 @dataclass
 class PathConfig:

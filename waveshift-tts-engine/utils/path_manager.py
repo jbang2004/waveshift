@@ -124,12 +124,15 @@ class TempFileManager:
         """音频分离目录"""
         return self.get_subdir("separated")
     
-    def get_temp_file(self, suffix: str = "", prefix: str = "") -> Path:
-        """创建临时文件"""
+    def get_temp_file(self, suffix: str = "", prefix: str = "tmp_") -> Path:
+        """在任务临时目录下创建一个临时文件并返回其路径"""
         base_dir = self.create_temp_dir()
-        fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=base_dir)
-        os.close(fd)  # 关闭文件描述符
-        return Path(path)
+        base_dir.mkdir(parents=True, exist_ok=True)
+        fd, path_str = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=str(base_dir))
+        os.close(fd)
+        temp_path = Path(path_str)
+        logger.debug(f"创建临时文件: {temp_path}")
+        return temp_path
     
     def cleanup(self, force=False):
         """清理临时文件
