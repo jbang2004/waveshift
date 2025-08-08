@@ -26,7 +26,7 @@
   
   // 环境变量
   "vars": {
-    "TTS_ENGINE_URL": "https://staffing-mens-without-favorites.trycloudflare.com",  // Cloudflare Tunnel 地址
+    "TTS_ENGINE_URL": "https://tts.waveshift.net",  // Cloudflare Named Tunnel 公网域名
     "R2_PUBLIC_DOMAIN": "pub-c09922edccd14a90bdf16e48cf1e8cfd.r2.dev"
   },
   
