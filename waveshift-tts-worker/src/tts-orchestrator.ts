@@ -3,7 +3,6 @@
  * 负责协调句子累积、批量发送和结果处理
  * 新增：智能任务上下文管理
  */
-
 import { SentenceAccumulator, SegmentData } from './sentence-accumulator';
 import { SegmentDatabase, SynthesisResult } from './database';
 import { Env, TTSWatchParams, TTSWatchResponse, MediaContext } from './types';
@@ -21,6 +20,9 @@ export interface SynthesisRequest {
     language?: string;
     speed?: number;
   };
+  // 新增：明确处理模式与任务ID
+  mode: 'simple' | 'full';
+  task_id?: string;
 }
 
 export interface SynthesisResponse {
@@ -38,8 +40,7 @@ export class TTSOrchestrator {
   private accumulator: SentenceAccumulator;
   private database: SegmentDatabase;
   private env: Env;
-  private isProcessing: boolean = false;
-  
+
   // 任务上下文管理
   private taskContexts: Map<string, MediaContext> = new Map();
   private initializedTasks: Set<string> = new Set();
@@ -51,21 +52,21 @@ export class TTSOrchestrator {
       batchSize: 3,
       timeoutMs: 10000,
     });
-    
+
     console.log('🎭 TTS编排器初始化完成 (支持智能任务上下文管理)');
   }
 
   async synthesizeTranscription(params: TTSWatchParams): Promise<TTSWatchResponse> {
     const { transcription_id, output_prefix, voice_settings, media_context } = params;
     const startTime = Date.now();
-    
+
     console.log(`🎭 开始TTS转录处理:`);
     console.log(`  - 转录ID: ${transcription_id}`);
     console.log(`  - 输出前缀: ${output_prefix}`);
-    
+
     let processedCount = 0;
     let failedCount = 0;
-    
+
     try {
       // 如果有媒体上下文，进行任务初始化
       if (media_context && !this.initializedTasks.has(media_context.task_id)) {
@@ -76,89 +77,129 @@ export class TTSOrchestrator {
       let lastProcessedSequence = 0;
       let consecutiveEmptyCount = 0;
       const maxEmptyCount = 5;
-      
-      while (consecutiveEmptyCount < maxEmptyCount) {
+
+      while (true) {
+        // 优先检查转录状态，决定是否可以安全退出
+        const status = await this.database.checkTranscriptionStatus(transcription_id);
+        if (status.isComplete) {
+          const accEmpty = this.accumulator.isEmpty();
+          if (accEmpty && status.processedSegments >= status.totalSegments) {
+            console.log(`✅ 检测到转录已完成且无待处理，安全退出循环`);
+            break;
+          }
+        }
+
         // 获取待处理的句子
         const segments = await this.database.fetchReadySegments(
           transcription_id,
           lastProcessedSequence,
           10
         );
-        
+
         if (segments.length === 0) {
           consecutiveEmptyCount++;
+
+          // 定时检查批次超时（无新句子也要刷新）
+          if (this.accumulator.checkForTimeout()) {
+            const timedOutBatch = this.accumulator.extractBatch();
+            if (timedOutBatch.length > 0) {
+              try {
+                const results = await this.synthesizeBatch(
+                  media_context?.task_id || 'default',
+                  transcription_id,
+                  timedOutBatch,
+                  voice_settings
+                );
+                const successResults = results.filter(r => r.success);
+                processedCount += successResults.length;
+                failedCount += results.length - successResults.length;
+                console.log(`⏰ 超时批次已发送: 成功 ${successResults.length}, 失败 ${results.length - successResults.length}`);
+              } catch (error) {
+                console.error('❌ 超时批次处理失败:', error);
+                failedCount += timedOutBatch.length;
+              }
+            }
+          }
+
+          if (consecutiveEmptyCount >= maxEmptyCount) {
+            // 如果长时间没有新句子，且已完成，则退出，否则继续等待
+            if (status.isComplete && this.accumulator.isEmpty()) {
+              console.log(`⏳ 长时间无新句子且转录完成，退出循环`);
+              break;
+            }
+          }
           console.log(`⏳ 暂无新句子，等待中... (${consecutiveEmptyCount}/${maxEmptyCount})`);
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
-        
+
         consecutiveEmptyCount = 0;
-        
+
         // 处理句子批次
         for (const segment of segments) {
           const shouldDispatch = this.accumulator.accumulate(segment);
-          
-                     if (shouldDispatch) {
-             const batch = this.accumulator.extractBatch();
-             if (batch.length > 0) {
+
+          if (shouldDispatch) {
+            const batch = this.accumulator.extractBatch();
+            if (batch.length > 0) {
               try {
-                                 const results = await this.synthesizeBatch(
-                   media_context?.task_id || 'default',
-                   transcription_id,
-                   batch, 
-                   voice_settings
-                 );
-                
+                const results = await this.synthesizeBatch(
+                  media_context?.task_id || 'default',
+                  transcription_id,
+                  batch,
+                  voice_settings
+                );
+
                 // 更新统计
                 const successResults = results.filter(r => r.success);
                 processedCount += successResults.length;
                 failedCount += results.length - successResults.length;
-                
+
                 console.log(`✅ 批次处理完成: 成功 ${successResults.length}, 失败 ${results.length - successResults.length}`);
-                
+
               } catch (error) {
                 console.error('❌ 批次处理失败:', error);
                 failedCount += batch.length;
               }
             }
           }
-          
+
           lastProcessedSequence = Math.max(lastProcessedSequence, segment.sequence);
         }
       }
-      
-             // 处理最后一个不完整的批次
-       const finalBatch = this.accumulator.extractBatch();
-      if (finalBatch.length > 0) {
+
+      // 处理剩余未满批的句子（确保尾包 flush）
+      const remaining = this.accumulator.extractRemaining();
+      if (remaining.length > 0) {
         try {
-                     const results = await this.synthesizeBatch(
-             media_context?.task_id || 'default',
-             transcription_id,
-             finalBatch, 
-             voice_settings
-           );
-          
+          const results = await this.synthesizeBatch(
+            media_context?.task_id || 'default',
+            transcription_id,
+            remaining,
+            voice_settings
+          );
+
           const successResults = results.filter(r => r.success);
           processedCount += successResults.length;
           failedCount += results.length - successResults.length;
-          
-          console.log(`✅ 最终批次处理完成: 成功 ${successResults.length}, 失败 ${results.length - successResults.length}`);
-          
+
+          console.log(`✅ 尾包处理完成: 成功 ${successResults.length}, 失败 ${results.length - successResults.length}`);
+
         } catch (error) {
-          console.error('❌ 最终批次处理失败:', error);
-          failedCount += finalBatch.length;
+          console.error('❌ 尾包处理失败:', error);
+          failedCount += remaining.length;
         }
       }
-      
+
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-      const successRate = processedCount + failedCount > 0 ? 
+      const successRate = processedCount + failedCount > 0 ?
         `${Math.round((processedCount / (processedCount + failedCount)) * 100)}%` : '0%';
-      
+
       console.log(`🎉 TTS转录处理完成:`);
       console.log(`  - 总耗时: ${totalTime}秒`);
       console.log(`  - 成功: ${processedCount}, 失败: ${failedCount}`);
       console.log(`  - 成功率: ${successRate}`);
-      
+
       return {
         success: true,
         processed_count: processedCount,
@@ -167,11 +208,11 @@ export class TTSOrchestrator {
         total_time_s: totalTime,
         transcription_id
       };
-      
+
     } catch (error) {
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
       console.error(`❌ TTS转录处理失败:`, error);
-      
+
       return {
         success: false,
         processed_count: processedCount,
@@ -181,6 +222,11 @@ export class TTSOrchestrator {
         transcription_id,
         error: error instanceof Error ? error.message : String(error)
       };
+    } finally {
+      // 尝试清理任务上下文资源
+      if (media_context?.task_id) {
+        await this.cleanupTask(media_context.task_id);
+      }
     }
   }
 
@@ -189,15 +235,15 @@ export class TTSOrchestrator {
    */
   private async initializeTaskContext(mediaContext: MediaContext): Promise<void> {
     const { task_id, user_id, audio_key, video_key, r2_domain } = mediaContext;
-    
+
     console.log(`🎬 初始化任务上下文: ${task_id}`);
     console.log(`  - 用户ID: ${user_id}`);
     console.log(`  - 音频文件: ${audio_key}`);
     console.log(`  - 视频文件: ${video_key}`);
-    
+
     try {
       // 调用TTS引擎的任务初始化接口
-      const response = await fetch(`${this.env.TTS_ENGINE_URL}/tasks/${task_id}/initialize`, {
+      const response: any = await this.fetchWithRetry(`${this.env.TTS_ENGINE_URL}/tasks/${task_id}/initialize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -217,11 +263,11 @@ export class TTSOrchestrator {
 
       const result = await response.json();
       console.log(`✅ 任务上下文初始化成功:`, result);
-      
+
       // 缓存上下文并标记为已初始化
       this.taskContexts.set(task_id, mediaContext);
       this.initializedTasks.add(task_id);
-      
+
     } catch (error) {
       console.error(`❌ 任务上下文初始化失败:`, error);
       throw error;
@@ -234,7 +280,7 @@ export class TTSOrchestrator {
   private async synthesizeBatch(
     taskId: string,
     transcriptionId: string,
-    segments: SegmentData[], 
+    segments: SegmentData[],
     voiceSettings?: any
   ): Promise<SynthesisResult[]> {
     if (segments.length === 0) {
@@ -252,6 +298,7 @@ export class TTSOrchestrator {
       );
 
       // 构建批次请求
+      const mode: 'simple' | 'full' = this.initializedTasks.has(taskId) ? 'full' : 'simple';
       const request: SynthesisRequest = {
         sentences: segments.map(segment => ({
           sequence: segment.sequence,
@@ -262,6 +309,8 @@ export class TTSOrchestrator {
           endMs: segment.end_ms,
         })),
         settings: voiceSettings || {},
+        mode,
+        task_id: this.initializedTasks.has(taskId) ? taskId : undefined,
       };
 
       // 选择合适的API端点
@@ -276,12 +325,10 @@ export class TTSOrchestrator {
         console.log(`🔄 使用传统接口: ${apiEndpoint}`);
       }
 
-      // 发送到TTS引擎
-      const response = await fetch(apiEndpoint, {
+      // 发送到TTS引擎（带重试与退避）
+      const response = await this.fetchWithRetry(apiEndpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
       });
 
@@ -315,7 +362,7 @@ export class TTSOrchestrator {
 
     } catch (error) {
       console.error('❌ 批次合成失败:', error);
-      
+
       // 标记批次为失败
       const errorResults: SynthesisResult[] = segments.map(s => ({
         sequence: s.sequence,
@@ -326,7 +373,7 @@ export class TTSOrchestrator {
       }));
 
              await this.database.updateSynthesisResults(transcriptionId, errorResults);
-      
+
       return errorResults;
     }
   }
@@ -336,7 +383,7 @@ export class TTSOrchestrator {
    */
   async cleanupTask(taskId: string): Promise<void> {
     console.log(`🧹 清理任务资源: ${taskId}`);
-    
+
     try {
       // 如果任务已初始化，调用TTS引擎的清理接口
       if (this.initializedTasks.has(taskId)) {
@@ -349,16 +396,40 @@ export class TTSOrchestrator {
           console.warn(`⚠️ TTS引擎任务清理警告: ${error}`);
         }
       }
-      
+
       // 清理本地缓存
       this.taskContexts.delete(taskId);
       this.initializedTasks.delete(taskId);
-      
+
       console.log(`✅ 本地任务资源已清理: ${taskId}`);
-      
     } catch (error) {
       console.error(`❌ 任务资源清理失败: ${taskId}`, error);
     }
+  }
+
+  /**
+   * 简单的带指数退避的fetch重试
+   */
+  private async fetchWithRetry(url: string, init: any, maxAttempts: number = 3, baseDelayMs: number = 500): Promise<any> {
+    let attempt = 0;
+    let lastErr: any;
+    while (attempt < maxAttempts) {
+      try {
+        const res: any = await fetch(url, init);
+        if (res.status === 429 || res.status >= 500) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        return res;
+      } catch (err) {
+        lastErr = err;
+        attempt++;
+        if (attempt >= maxAttempts) break;
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(`⚠️ 请求失败（第${attempt}次），${delay}ms后重试:`, err);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
   }
 
   /**
@@ -366,7 +437,7 @@ export class TTSOrchestrator {
    */
   cleanup(): void {
     console.log('🧹 清理TTS编排器资源');
-    
+
     // 清理所有任务
     const taskIds = Array.from(this.initializedTasks);
     for (const taskId of taskIds) {
@@ -375,10 +446,10 @@ export class TTSOrchestrator {
         console.error(`清理任务 ${taskId} 失败:`, error);
       });
     }
-    
+
     // 清理累积器
     this.accumulator.clear();
-    
+
     console.log('✅ TTS编排器资源清理完成');
   }
 }

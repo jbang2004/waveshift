@@ -1,0 +1,50 @@
+2025-08-08 13:31:50,783 - __main__ - INFO - 🚀 启动WaveShift TTS合成引擎 v2.0
+2025-08-08 13:31:50,783 - __main__ - INFO - 📁 项目目录: /root/autodl-tmp/waveshift/waveshift-tts-engine
+2025-08-08 13:31:50,783 - __main__ - INFO - ✅ 模型目录: /root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS
+2025-08-08 13:31:50,790 - config - INFO - 日志系统初始化完成，级别: INFO
+2025-08-08 13:31:50,790 - config - INFO - TTS配置初始化完成
+2025-08-08 13:31:50,790 - config - INFO - TTS批处理大小: 3
+2025-08-08 13:31:50,790 - config - INFO - 目标采样率: 24000Hz
+2025-08-08 13:31:50,790 - config - INFO - 保存音频文件: True
+2025-08-08 13:31:50,790 - config - INFO - 处理模式: simple
+2025-08-08 13:31:50,790 - config - INFO - 延迟加载: True
+2025-08-08 13:31:50,790 - __main__ - INFO - 📋 启动配置:
+2025-08-08 13:31:50,790 - __main__ - INFO -   - 服务器: 127.0.0.1:6006
+2025-08-08 13:31:50,790 - __main__ - INFO -   - 批处理大小: 3
+2025-08-08 13:31:50,790 - __main__ - INFO -   - 采样率: 24000Hz
+2025-08-08 13:31:50,790 - __main__ - INFO -   - 保存音频: True
+2025-08-08 13:31:50,790 - __main__ - INFO -   - 临时目录: /tmp/tts_temp
+2025-08-08 13:31:50,790 - __main__ - INFO - 🎤 启动TTS合成服务...
+2025-08-08 13:31:52,726 - core.task_context_manager - INFO - TaskContextManager 初始化完成
+INFO:     Started server process [20328]
+INFO:     Waiting for application startup.
+2025-08-08 13:31:52,733 - core.voice_synthesizer - INFO - 添加IndexTTS模块路径: /root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS
+2025-08-08 13:31:54,807 - core.voice_synthesizer - ERROR - IndexTTS初始化失败: No module named 'sentencepiece'
+Traceback (most recent call last):
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/core/voice_synthesizer.py", line 52, in __init__
+    from models.IndexTTS.indextts.infer import IndexTTS
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS/indextts/infer.py", line 23, in <module>
+    from indextts.utils.front import TextNormalizer, TextTokenizer
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS/indextts/utils/front.py", line 8, in <module>
+    from sentencepiece import SentencePieceProcessor
+ModuleNotFoundError: No module named 'sentencepiece'
+2025-08-08 13:31:54,808 - synthesizer - ERROR - 语音合成引擎初始化失败: No module named 'sentencepiece'
+ERROR:    Traceback (most recent call last):
+  File "/root/miniconda3/lib/python3.12/site-packages/starlette/routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/root/miniconda3/lib/python3.12/site-packages/starlette/routing.py", line 571, in __aenter__
+    await self._router.startup()
+  File "/root/miniconda3/lib/python3.12/site-packages/starlette/routing.py", line 671, in startup
+    await handler()
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/synthesizer.py", line 264, in startup_event
+    voice_synthesizer = VoiceSynthesizer(config)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/core/voice_synthesizer.py", line 52, in __init__
+    from models.IndexTTS.indextts.infer import IndexTTS
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS/indextts/infer.py", line 23, in <module>
+    from indextts.utils.front import TextNormalizer, TextTokenizer
+  File "/root/autodl-tmp/waveshift/waveshift-tts-engine/models/IndexTTS/indextts/utils/front.py", line 8, in <module>
+    from sentencepiece import SentencePieceProcessor
+ModuleNotFoundError: No module named 'sentencepiece'
+
+ERROR:    Application startup failed. Exiting.

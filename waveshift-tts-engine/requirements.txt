@@ -1,41 +1,54 @@
-aiofiles
-aiohttp
-Cython
-einops
-huggingface_hub==0.27.1
-HyperPyYAML
-joblib
-json_repair
-m3u8
+# WaveShift TTS Engine - runtime dependencies (pinned for stability)
+# NOTE: For CUDA wheels of torch/torchaudio/torchvision, install from PyTorch index as needed.
+
+# Web & async
+fastapi==0.116.1
+uvicorn==0.35.0
+aiohttp==3.12.15
+aiofiles==24.1.0
+httpx==0.28.1
+
+# Core math/audio
 numpy
-omegaconf
-openai
-packaging
-pandas
-pesq==0.0.4
-phonemizer
-piper_phonemize
-protobuf==4.25
-pyarrow
-pysubs2
-python-dotenv
-pyworld
+scipy==1.16.1
+soundfile==0.13.1
+librosa==0.11.0
+numba==0.61.2
+llvmlite==0.44.0
+soxr==0.5.0.post1
+
+# Torch stack (install CUDA wheels from https://download.pytorch.org/whl/cu124 when using GPU)
+torch
+torchaudio
+torchvision
+
+# Models / NLP
+transformers==4.36.2
+tokenizers==0.15.0
+einops==0.8.1
+huggingface_hub==0.34.3
+safetensors==0.6.1
+sentencepiece==0.2.0
+
+# Config / utils
+omegaconf==2.3.0
+python-dotenv==1.1.1
 PyYAML
+packaging
+json_repair
 Requests
-scipy
-setuptools
-tiktoken
-torchinfo
-tqdm
-transformers
-Unidecode
-wget
-yamlargparse
-google.generativeai
-fastapi
-uvicorn
-rotary_embedding_torch
-pydub
-boto3
-httpx
+
+# Features
+m3u8==6.0.0
+pysubs2==1.8.0
+
+# Translation providers
+google-genai==1.29.0
+openai
+groq==0.31.0
+
+# Optional: vocal separation (GPU)
 audio-separator[gpu]>=0.16.0
+
+# Progress / jobs
+tqdm

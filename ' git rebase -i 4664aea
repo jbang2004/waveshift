@@ -1,0 +1,7 @@
+Commits to rewrite:
+858ba01 chore(engine): pin runtime deps; add google-genai & groq; align torch stack; default TRANSLATION_MODEL=groq
+fa91128 chore(worker): point TTS_ENGINE_URL to Cloudflare Tunnel quick URL
+ad79913 chore(env): replace example GROQ_API_KEY with placeholder to satisfy push protection
+1c64b8c chore(worker): update TTS_ENGINE_URL to current Cloudflare quick tunnel
+
+Creating interactive rebase todo...

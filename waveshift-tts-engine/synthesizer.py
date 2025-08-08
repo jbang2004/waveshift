@@ -61,16 +61,16 @@ class SynthesisRequest(BaseModel):
     """批量合成请求 - 支持双模式"""
     sentences: List[SentenceRequest]
     settings: Dict[str, Any] = {}
-    
-    # 处理模式选择
-    mode: str = "simple"  # simple|full
-    
+
+    # 处理模式选择（必填）
+    mode: str  # simple | full
+
     # 完整模式参数
     enable_duration_align: bool = False
     enable_timestamp_adjust: bool = False
     enable_media_mix: bool = False
     enable_hls: bool = False
-    
+
     # 媒体文件路径（完整模式）
     video_path: Optional[str] = None
     audio_path: Optional[str] = None
