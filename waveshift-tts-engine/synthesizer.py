@@ -462,7 +462,8 @@ async def full_processing_pipeline_with_context(request: SynthesisRequest, path_
         
         # 阶段1: TTS合成
         if voice_synthesizer:
-            tts_sentences = await voice_synthesizer.synthesize_batch(tts_sentences)
+            # 使用 VoiceSynthesizer 的正确方法名（camelCase）
+            tts_sentences = await voice_synthesizer.synthesizeBatch(tts_sentences)
         else:
             raise RuntimeError("语音合成器未初始化")
         
